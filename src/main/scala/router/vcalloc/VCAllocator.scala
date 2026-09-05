@@ -28,25 +28,25 @@ class VCAllocResp(val outParams: Seq[ChannelParams], val egressParams: Seq[Egres
 }
 
 case class VCAllocatorParams(
-  routerParams: RouterParams,
+  routingContexts: Seq[RouterRoutingContext],
   inParams: Seq[ChannelParams],
   outParams: Seq[ChannelParams],
   ingressParams: Seq[IngressChannelParams],
   egressParams: Seq[EgressChannelParams])
 
 abstract class VCAllocator(val vP: VCAllocatorParams)(implicit val p: Parameters) extends Module
-    with HasRouterParams
     with HasRouterInputParams
     with HasRouterOutputParams
     with HasNoCParams {
 
-  val routerParams = vP.routerParams
+  val routingContexts = vP.routingContexts
   val inParams = vP.inParams
   val outParams = vP.outParams
   val ingressParams = vP.ingressParams
   val egressParams = vP.egressParams
 
   val io = IO(new Bundle {
+    val node_id = Input(UInt(nodeIdBits.W))
     val req = MixedVec(allInParams.map { u =>
       Flipped(Decoupled(new VCAllocReq(u, outParams, egressParams)))
     })

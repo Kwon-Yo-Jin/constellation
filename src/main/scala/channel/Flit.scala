@@ -13,12 +13,14 @@ class BaseFlit(val payloadBits: Int)(implicit val p: Parameters) extends Bundle 
   val payload = UInt(payloadBits.W)
 }
 
-class IngressFlit(payloadBits: Int)(implicit p: Parameters) extends BaseFlit(payloadBits)(p) {
-  val egress_id = UInt()
+class IngressFlit(payloadBits: Int, egressIdBits: Int = 0)(implicit p: Parameters)
+    extends BaseFlit(payloadBits)(p) {
+  val egress_id = if (egressIdBits > 0) UInt(egressIdBits.W) else UInt()
 }
 
-class EgressFlit(payloadBits: Int)(implicit p: Parameters) extends BaseFlit(payloadBits)(p) {
-  val ingress_id = UInt()
+class EgressFlit(payloadBits: Int, ingressIdBits: Int = 0)(implicit p: Parameters)
+    extends BaseFlit(payloadBits)(p) {
+  val ingress_id = if (ingressIdBits > 0) UInt(ingressIdBits.W) else UInt()
 }
 
 class Flit(payloadBits: Int)(implicit p: Parameters) extends BaseFlit(payloadBits)(p) with HasNoCParams {

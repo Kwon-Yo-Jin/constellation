@@ -18,11 +18,13 @@ class Channel(val cParam: ChannelParams)(implicit val p: Parameters) extends Bun
 class IngressChannel(val cParam: BaseChannelParams)(implicit val p: Parameters) extends Bundle {
   val payloadBits = cParam.payloadBits
   require(cParam.isInstanceOf[IngressChannelParams])
-  val flit = Irrevocable(new IngressFlit(cParam.payloadBits))
+  val flit = Irrevocable(new IngressFlit(
+    cParam.payloadBits, cParam.asInstanceOf[IngressChannelParams].egressIdBits))
 }
 
 class EgressChannel(val cParam: BaseChannelParams)(implicit val p: Parameters) extends Bundle {
   val payloadBits = cParam.payloadBits
   require(cParam.isInstanceOf[EgressChannelParams])
-  val flit = Irrevocable(new EgressFlit(cParam.payloadBits))
+  val flit = Irrevocable(new EgressFlit(
+    cParam.payloadBits, cParam.asInstanceOf[EgressChannelParams].ingressIdBits))
 }

@@ -14,8 +14,8 @@ class AbstractInputUnitIO(
   val cParam: BaseChannelParams,
   val outParams: Seq[ChannelParams],
   val egressParams: Seq[EgressChannelParams],
-)(implicit val p: Parameters) extends Bundle with HasRouterOutputParams {
-  val nodeId = cParam.destId
+)(implicit val p: Parameters) extends Bundle with HasRouterOutputParams with HasNoCParams {
+  val node_id = Input(UInt(nodeIdBits.W))
 
   val router_req = Decoupled(new RouteComputerReq)
   val router_resp = Input(new RouteComputerResp(outParams, egressParams))
@@ -40,8 +40,6 @@ abstract class AbstractInputUnit(
   val outParams: Seq[ChannelParams],
   val egressParams: Seq[EgressChannelParams]
 )(implicit val p: Parameters) extends Module with HasRouterOutputParams with HasNoCParams {
-  val nodeId = cParam.destId
-
   def io: AbstractInputUnitIO
 
 }
@@ -157,17 +155,39 @@ class InputBuffer(cParam: ChannelParams)(implicit p: Parameters) extends Module 
 
 class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
   egressParams: Seq[EgressChannelParams],
-  combineRCVA: Boolean, combineSAST: Boolean
+  combineRCVA: Boolean, combineSAST: Boolean,
+  routingContexts: Seq[RouterRoutingContext]
 )
   (implicit p: Parameters) extends AbstractInputUnit(cParam, outParams, egressParams)(p) {
 
   val nVirtualChannels = cParam.nVirtualChannels
   val virtualChannelParams = cParam.virtualChannelParams
 
+  private val localShape = InputUnitRoutingShape(
+    cParam.nVirtualChannels,
+    outParams.map(_.nVirtualChannels),
+    egressParams.map(_.nVirtualChannels),
+    combineRCVA,
+    combineSAST)
+  private val inputContexts = routingContexts.flatMap { context =>
+    context.inParams.zipWithIndex.collect {
+      case (param, portId) if context.inputUnitRoutingShape(param) == localShape =>
+        (context, portId, param)
+    }
+  }
+  require(inputContexts.nonEmpty,
+    s"No routing context for input shape ${localShape}; candidates: " +
+      routingContexts.flatMap(c => c.inParams.map(c.inputUnitRoutingShape)).mkString(", "))
+  private val portIdBits = log2Up(inputContexts.map(_._2).max + 1)
+
   class InputUnitIO extends AbstractInputUnitIO(cParam, outParams, egressParams) {
-    val in = Flipped(new Channel(cParam.asInstanceOf[ChannelParams]))
+    val port_id = Input(UInt(portIdBits.W))
+    val in = Flipped(new Channel(this.cParam.asInstanceOf[ChannelParams]))
   }
   val io = IO(new InputUnitIO)
+
+  private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
+    io.node_id === context.nodeId.U && io.port_id === portId.U
 
   val g_i :: g_r :: g_v :: g_a :: g_c :: Nil = Enum(5)
 
@@ -191,14 +211,16 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
 
   val states = Reg(Vec(nVirtualChannels, new InputState))
 
-  val anyFifo = cParam.possibleFlows.map(_.fifo).reduce(_||_)
-  val allFifo = cParam.possibleFlows.map(_.fifo).reduce(_&&_)
+  val anyFifo = inputContexts.exists(_._3.possibleFlows.exists(_.fifo))
+  val trackFifo = inputContexts.collect {
+    case (context, portId, param) if param.possibleFlows.exists(_.fifo) =>
+      contextMatch(context, portId)
+  }.orR
 
   if (anyFifo) {
     val idle_mask = VecInit(states.map(_.g === g_i)).asUInt
     for (s <- states)
-      for (i <- 0 until nVirtualChannels)
-        s.fifo_deps := s.fifo_deps & ~idle_mask
+      s.fifo_deps := Mux(trackFifo, s.fifo_deps & ~idle_mask, 0.U)
   }
 
   for (i <- 0 until cParam.srcSpeedup) {
@@ -206,7 +228,7 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
       val id = io.in.flit(i).bits.virt_channel_id
       assert(id < nVirtualChannels.U)
       assert(states(id).g === g_i)
-      val at_dest = io.in.flit(i).bits.flow.egress_node === nodeId.U
+      val at_dest = io.in.flit(i).bits.flow.egress_node === io.node_id
       states(id).g := Mux(at_dest, g_v, g_r)
       states(id).vc_sel.foreach(_.foreach(_ := false.B))
       for (o <- 0 until nEgress) {
@@ -216,10 +238,10 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
       }
       states(id).flow := io.in.flit(i).bits.flow
       if (anyFifo) {
-        val fifo = cParam.possibleFlows.filter(_.fifo).map(_.isFlow(io.in.flit(i).bits.flow)).toSeq.orR
-        states(id).fifo_deps := VecInit(states.zipWithIndex.map { case (s, j) =>
+        val deps = VecInit(states.zipWithIndex.map { case (s, j) =>
           s.g =/= g_i && s.flow.asUInt === io.in.flit(i).bits.flow.asUInt && j.U =/= id
         }).asUInt
+        states(id).fifo_deps := Mux(trackFifo, deps, 0.U)
       }
     }
   }
@@ -263,7 +285,8 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
 
   states.zipWithIndex.map { case (s,idx) =>
     if (virtualChannelParams(idx).traversable) {
-      vcalloc_vals(idx) := s.g === g_v && (if (anyFifo) s.fifo_deps === 0.U else true.B)
+      vcalloc_vals(idx) := s.g === g_v &&
+        (if (anyFifo) !trackFifo || s.fifo_deps === 0.U else true.B)
       vcalloc_reqs(idx).in_vc := idx.U
       vcalloc_reqs(idx).vc_sel := s.vc_sel
       vcalloc_reqs(idx).flow := s.flow
@@ -371,18 +394,24 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
 
   def filterVCSel(sel: MixedVec[Vec[Bool]], srcV: Int) = {
     if (virtualChannelParams(srcV).traversable) {
-      outParams.zipWithIndex.map { case (oP, oI) =>
-        (0 until oP.nVirtualChannels).map { oV =>
-          var allow = false
-          virtualChannelParams(srcV).possibleFlows.foreach { pI =>
-            allow = allow || routingRelation(
-              cParam.channelRoutingInfos(srcV),
-              oP.channelRoutingInfos(oV),
-              pI
-            )
+      outParams.zipWithIndex.foreach { case (oP, oI) =>
+        (0 until oP.nVirtualChannels).foreach { oV =>
+          val allowingContexts = inputContexts.filter { case (context, _, param) =>
+            RouterRoutingContext.orderedFlows(
+              param.virtualChannelParams(srcV).possibleFlows).exists { flow =>
+              context.outParams(oI).virtualChannelParams(oV).possibleFlows.contains(flow) &&
+              routingRelation(
+                param.channelRoutingInfos(srcV),
+                context.outParams(oI).channelRoutingInfos(oV),
+                flow)
+            }
           }
-          if (!allow)
+          val allow = allowingContexts.map { case (context, portId, _) =>
+            contextMatch(context, portId)
+          }.orR
+          when (!allow) {
             sel(oI)(oV) := false.B
+          }
         }
       }
     }

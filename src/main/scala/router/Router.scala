@@ -8,7 +8,7 @@ import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 
 import constellation.channel._
-import constellation.routing.{RoutingRelation}
+import constellation.routing.{FlowRoutingInfo, RoutingRelation}
 import constellation.noc.{HasNoCParams}
 
 case class UserRouterParams(
@@ -29,6 +29,114 @@ case class RouterParams(
   nEgress: Int,
   user: UserRouterParams
 )
+
+/** Parameters which can change the generated hardware shape of a channel.
+  * Topology-local identifiers and flow sets are deliberately excluded: those
+  * are selected from the runtime node ID instead.
+  */
+case class ChannelHardwareShape(
+  payloadBits: Int,
+  nVirtualChannels: Int,
+  bufferSizes: Seq[Int],
+  traversableVCs: Seq[Boolean],
+  srcSpeedup: Int,
+  destSpeedup: Int,
+  useOutputQueues: Boolean,
+  unifiedBuffer: Boolean)
+
+object ChannelHardwareShape {
+  def apply(p: BaseChannelParams): ChannelHardwareShape = p match {
+    case c: ChannelParams => ChannelHardwareShape(
+      c.payloadBits,
+      c.nVirtualChannels,
+      c.virtualChannelParams.map(_.bufferSize),
+      c.virtualChannelParams.map(_.traversable),
+      c.srcSpeedup,
+      c.destSpeedup,
+      c.useOutputQueues,
+      c.unifiedBuffer)
+    case _ => ChannelHardwareShape(
+      p.payloadBits,
+      p.nVirtualChannels,
+      Nil,
+      Seq(p.traversable),
+      p.srcSpeedup,
+      p.destSpeedup,
+      false,
+      false)
+  }
+}
+
+case class RouterHardwareShape(
+  in: Seq[ChannelHardwareShape],
+  out: Seq[ChannelHardwareShape],
+  ingress: Seq[ChannelHardwareShape],
+  egress: Seq[ChannelHardwareShape],
+  payloadBits: Int,
+  combineSAST: Boolean,
+  combineRCVA: Boolean,
+  coupleSAVA: Boolean,
+  allocatorClass: String)
+
+case class InputUnitRoutingShape(
+  inputVirtualChannels: Int,
+  outputVirtualChannels: Seq[Int],
+  egressVirtualChannels: Seq[Int],
+  combineRCVA: Boolean,
+  combineSAST: Boolean)
+
+case class EgressUnitRoutingShape(
+  virtualChannels: Int,
+  coupleSAVA: Boolean,
+  combineSAST: Boolean)
+
+case class RouterRoutingContext(
+  nodeId: Int,
+  inParams: Seq[ChannelParams],
+  outParams: Seq[ChannelParams],
+  ingressParams: Seq[IngressChannelParams],
+  egressParams: Seq[EgressChannelParams],
+  user: UserRouterParams = UserRouterParams()
+) extends HasRouterInputParams with HasRouterOutputParams {
+  def hasSamePolicyShape(that: RouterRoutingContext): Boolean = {
+    inParams.map(_.nVirtualChannels) == that.inParams.map(_.nVirtualChannels) &&
+    outParams.map(_.nVirtualChannels) == that.outParams.map(_.nVirtualChannels) &&
+    ingressParams.size == that.ingressParams.size &&
+    egressParams.size == that.egressParams.size
+  }
+
+  def hardwareShape: RouterHardwareShape = RouterHardwareShape(
+    inParams.map(ChannelHardwareShape(_)),
+    outParams.map(ChannelHardwareShape(_)),
+    ingressParams.map(ChannelHardwareShape(_)),
+    egressParams.map(ChannelHardwareShape(_)),
+    user.payloadBits,
+    user.combineSAST,
+    user.combineRCVA,
+    user.coupleSAVA,
+    user.vcAllocator.getClass.getName)
+
+  def inputUnitRoutingShape(cParam: BaseChannelParams): InputUnitRoutingShape =
+    InputUnitRoutingShape(
+      cParam.nVirtualChannels,
+      outParams.map(_.nVirtualChannels),
+      egressParams.map(_.nVirtualChannels),
+      user.combineRCVA,
+      user.combineSAST)
+
+  def egressUnitRoutingShape(cParam: EgressChannelParams): EgressUnitRoutingShape =
+    EgressUnitRoutingShape(
+      cParam.nVirtualChannels,
+      user.coupleSAVA && nAllInputs == 1,
+      user.combineSAST)
+}
+
+object RouterRoutingContext {
+  def orderedFlows(flows: Set[FlowRoutingInfo]): Seq[FlowRoutingInfo] =
+    flows.toSeq.sortBy(f => (
+      f.ingressId, f.egressId, f.vNetId, f.ingressNode,
+      f.ingressNodeId, f.egressNode, f.egressNodeId, f.fifo))
+}
 
 trait HasRouterOutputParams {
   def outParams: Seq[ChannelParams]
@@ -69,7 +177,9 @@ class Router(
   preDiplomaticInParams: Seq[ChannelParams],
   preDiplomaticIngressParams: Seq[IngressChannelParams],
   outDests: Seq[Int],
-  egressIds: Seq[Int]
+  egressIds: Seq[Int],
+  routingContexts: Seq[RouterRoutingContext],
+  topologyContext: RouterRoutingContext
 )(implicit p: Parameters) extends LazyModule with HasNoCParams with HasRouterParams {
   val allPreDiplomaticInParams = preDiplomaticInParams ++ preDiplomaticIngressParams
 
@@ -78,13 +188,32 @@ class Router(
   val ingressNodes = preDiplomaticIngressParams.map(u => IngressChannelDestNode(u))
   val egressNodes = egressIds.map(u => EgressChannelSourceNode(u))
 
+  // The diplomatic boundary can include inactive padding ports so every
+  // router in a NoC has the same module interface. Keep the real-prefix views
+  // for physical topology and terminal wiring; the remaining nodes are tied
+  // off by NoC.
+  val realDestNodes = destNodes.take(topologyContext.inParams.size)
+  val realSourceNodes = sourceNodes.take(topologyContext.outParams.size)
+  val realIngressNodes = ingressNodes.take(topologyContext.ingressParams.size)
+  val realEgressNodes = egressNodes.take(topologyContext.egressParams.size)
+
   val debugNode = BundleBridgeSource(() => new DebugBundle(allPreDiplomaticInParams.size))
   val ctrlNode = if (hasCtrl) Some(BundleBridgeSource(() => new RouterCtrlBundle)) else None
 
-  def inParams = module.inParams
-  def outParams = module.outParams
-  def ingressParams = module.ingressParams
-  def egressParams = module.egressParams
+  /** Runtime node ID input. The static routerParams.nodeId remains only for
+    * topology construction and elaboration-time validation.
+    */
+  private val nodeIdNexusNode = BundleBroadcast[UInt]()
+  private val nodeIdSinkNode = BundleBridgeSink[UInt](Some(() => UInt(nodeIdBits.W)))
+  val nodeIdNode = nodeIdSinkNode := nodeIdNexusNode := BundleBridgeNameNode[UInt]("node_id")
+
+  // Metadata consumers (graph/adjacency artefacts) must not force the module
+  // of a CloneLazyModule. The topology context is equivalent to the negotiated
+  // edge parameters used by this router.
+  def inParams = topologyContext.inParams
+  def outParams = topologyContext.outParams
+  def ingressParams = topologyContext.ingressParams
+  def egressParams = topologyContext.egressParams
 
   lazy val module = new LazyModuleImp(this) with HasRouterInputParams with HasRouterOutputParams {
 
@@ -93,6 +222,10 @@ class Router(
     val (io_ingress, edgesIngress) = ingressNodes.map(_.in(0)).unzip
     val (io_egress, edgesEgress) = egressNodes.map(_.out(0)).unzip
     val io_debug = debugNode.out(0)._1
+    val runtimeNodeId = nodeIdSinkNode.bundle
+
+    require(runtimeNodeId.getWidth == nodeIdBits)
+    dontTouch(runtimeNodeId)
 
     val inParams = edgesIn.map(_.cp)
     val outParams = edgesOut.map(_.cp)
@@ -108,32 +241,52 @@ class Router(
     require(nAllOutputs >= 1)
     require(nodeId < (1 << nodeIdBits))
 
+    val input_monitors = (io_in zip inParams).zipWithIndex.map {
+      case ((in, param), portId) =>
+        val monitor = Module(new NoCMonitor(param, routingContexts))
+          .suggestName(s"input_monitor_$portId")
+        monitor.io.node_id := runtimeNodeId
+        monitor.io.port_id := portId.U
+        monitor.io.in := in
+        monitor
+    }
     val input_units = inParams.zipWithIndex.map { case (u,i) =>
       Module(new InputUnit(u, outParams, egressParams,
-        routerParams.user.combineRCVA, routerParams.user.combineSAST))
-        .suggestName(s"input_unit_${i}_from_${u.srcId}") }
+        routerParams.user.combineRCVA, routerParams.user.combineSAST,
+        routingContexts))
+        .suggestName(s"input_unit_$i") }
     val ingress_units = ingressParams.zipWithIndex.map { case (u,i) =>
-      Module(new IngressUnit(i, u, outParams, egressParams,
-        routerParams.user.combineRCVA, routerParams.user.combineSAST))
-        .suggestName(s"ingress_unit_${i+nInputs}_from_${u.ingressId}") }
+      Module(new IngressUnit(u, outParams, egressParams,
+        routerParams.user.combineRCVA, routerParams.user.combineSAST,
+        routingContexts))
+        .suggestName(s"ingress_unit_${i+nInputs}") }
     val all_input_units = input_units ++ ingress_units
 
     val output_units = outParams.zipWithIndex.map { case (u,i) =>
       Module(new OutputUnit(inParams, ingressParams, u))
-        .suggestName(s"output_unit_${i}_to_${u.destId}")}
+        .suggestName(s"output_unit_$i")}
     val egress_units = egressParams.zipWithIndex.map { case (u,i) =>
       Module(new EgressUnit(routerParams.user.coupleSAVA && all_input_units.size == 1,
         routerParams.user.combineSAST,
-        inParams, ingressParams, u))
-        .suggestName(s"egress_unit_${i+nOutputs}_to_${u.egressId}")}
+        inParams, ingressParams, u, routingContexts))
+        .suggestName(s"egress_unit_${i+nOutputs}")}
     val all_output_units = output_units ++ egress_units
 
-    val switch = Module(new Switch(routerParams, inParams, outParams, ingressParams, egressParams))
-    val switch_allocator = Module(new SwitchAllocator(routerParams, inParams, outParams, ingressParams, egressParams))
+    val switch = Module(new Switch(inParams, outParams, ingressParams, egressParams))
+    val switch_allocator = Module(new SwitchAllocator(inParams, outParams, ingressParams, egressParams))
     val vc_allocator = Module(routerParams.user.vcAllocator(
-      VCAllocatorParams(routerParams, inParams, outParams, ingressParams, egressParams)
+      VCAllocatorParams(routingContexts, inParams, outParams, ingressParams, egressParams)
     )(p))
-    val route_computer = Module(new RouteComputer(routerParams, inParams, outParams, ingressParams, egressParams))
+    val route_computer = Module(new RouteComputer(
+      routingContexts, inParams, outParams, ingressParams, egressParams))
+
+    all_input_units.foreach(_.io.node_id := runtimeNodeId)
+    input_units.zipWithIndex.foreach { case (u, i) => u.io.port_id := i.U }
+    ingress_units.zipWithIndex.foreach { case (u, i) => u.io.port_id := i.U }
+    egress_units.foreach(_.io.node_id := runtimeNodeId)
+    egress_units.zipWithIndex.foreach { case (u, i) => u.io.port_id := i.U }
+    vc_allocator.io.node_id := runtimeNodeId
+    route_computer.io.node_id := runtimeNodeId
 
 
     val fires_count = WireInit(PopCount(vc_allocator.io.req.map(_.fire)))
@@ -180,7 +333,7 @@ class Router(
 
     if (hasCtrl) {
       val io_ctrl = ctrlNode.get.out(0)._1
-      val ctrl = Module(new RouterControlUnit(routerParams, inParams, outParams, ingressParams, egressParams))
+      val ctrl = Module(new RouterControlUnit(inParams, outParams, ingressParams, egressParams))
       io_ctrl <> ctrl.io.ctrl
       (all_input_units   zip ctrl.io.in_block  ).foreach { case (l,r) => l.io.block := r }
       (all_input_units   zip ctrl.io.in_fire   ).foreach { case (l,r) => r := l.io.out.map(_.valid) }
@@ -199,26 +352,40 @@ class Router(
     val sample_rate = PlusArg("noc_util_sample_rate", width=20)
     when (debug_sample === sample_rate - 1.U) { debug_sample := 0.U }
 
-    def sample(fire: Bool, s: String) = {
+    def sample(fire: Bool, edgeFormat: String, edgeArgs: Bits*) = {
       val util_ctr = RegInit(0.U(64.W))
       val fired = RegInit(false.B)
       util_ctr := util_ctr + fire
       fired := fired || fire
       when (sample_rate =/= 0.U && debug_sample === sample_rate - 1.U && fired) {
-        val fmtStr = s"nocsample %d $s %d\n"
-        printf(fmtStr, debug_tsc, util_ctr);
+        val fmtStr = s"nocsample %d $edgeFormat %d\n"
+        printf(fmtStr, (Seq(debug_tsc) ++ edgeArgs ++ Seq(util_ctr)): _*);
         fired := fire
       }
     }
 
-    destNodes.map(_.in(0)).foreach { case (in, edge) => in.flit.map { f =>
-      sample(f.fire, s"${edge.cp.srcId} $nodeId")
+    val localContext = RouterRoutingContext(
+      nodeId, inParams, outParams, ingressParams, egressParams, routerParams.user)
+    val compatibleRouterContexts = routingContexts.filter(_.hasSamePolicyShape(localContext))
+    require(compatibleRouterContexts.nonEmpty)
+
+    destNodes.map(_.in(0)).zipWithIndex.foreach { case ((in, _), portId) => in.flit.map { f =>
+      val sourceId = PriorityMux(compatibleRouterContexts.map { context =>
+        (runtimeNodeId === context.nodeId.U) -> context.inParams(portId).srcId.U(nodeIdBits.W)
+      })
+      sample(f.fire, "%d %d", sourceId, runtimeNodeId)
     } }
-    ingressNodes.map(_.in(0)).foreach { case (in, edge) =>
-      sample(in.flit.fire, s"i${edge.cp.asInstanceOf[IngressChannelParams].ingressId} $nodeId")
+    ingressNodes.map(_.in(0)).zipWithIndex.foreach { case ((in, _), portId) =>
+      val ingressId = PriorityMux(compatibleRouterContexts.map { context =>
+        (runtimeNodeId === context.nodeId.U) -> context.ingressParams(portId).ingressId.U(ingressIdBits.W)
+      })
+      sample(in.flit.fire, "i%d %d", ingressId, runtimeNodeId)
     }
-    egressNodes.map(_.out(0)).foreach { case (out, edge) =>
-      sample(out.flit.fire, s"$nodeId e${edge.cp.asInstanceOf[EgressChannelParams].egressId}")
+    egressNodes.map(_.out(0)).zipWithIndex.foreach { case ((out, _), portId) =>
+      val egressId = PriorityMux(compatibleRouterContexts.map { context =>
+        (runtimeNodeId === context.nodeId.U) -> context.egressParams(portId).egressId.U(egressIdBits.W)
+      })
+      sample(out.flit.fire, "%d e%d", runtimeNodeId, egressId)
     }
 
   }

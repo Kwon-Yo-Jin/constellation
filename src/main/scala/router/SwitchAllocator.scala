@@ -62,13 +62,11 @@ class SwitchArbiter(inN: Int, outN: Int, outParams: Seq[ChannelParams], egressPa
 }
 
 class SwitchAllocator(
-  val routerParams: RouterParams,
   val inParams: Seq[ChannelParams],
   val outParams: Seq[ChannelParams],
   val ingressParams: Seq[IngressChannelParams],
   val egressParams: Seq[EgressChannelParams]
 )(implicit val p: Parameters) extends Module
-    with HasRouterParams
     with HasRouterInputParams
     with HasRouterOutputParams {
   val io = IO(new Bundle {

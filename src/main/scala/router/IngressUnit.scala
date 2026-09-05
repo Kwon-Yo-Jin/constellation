@@ -9,42 +9,72 @@ import freechips.rocketchip.util._
 import constellation.channel._
 
 class IngressUnit(
-  ingressNodeId: Int,
   cParam: IngressChannelParams,
   outParams: Seq[ChannelParams],
   egressParams: Seq[EgressChannelParams],
   combineRCVA: Boolean,
   combineSAST: Boolean,
+  routingContexts: Seq[RouterRoutingContext],
 )
   (implicit p: Parameters) extends AbstractInputUnit(cParam, outParams, egressParams)(p) {
 
+  private val localShape = InputUnitRoutingShape(
+    cParam.nVirtualChannels,
+    outParams.map(_.nVirtualChannels),
+    egressParams.map(_.nVirtualChannels),
+    combineRCVA,
+    combineSAST)
+  private val ingressContexts = routingContexts.flatMap { context =>
+    context.ingressParams.zipWithIndex.collect {
+      case (param, portId) if context.inputUnitRoutingShape(param) == localShape =>
+        (context, portId, param)
+    }
+  }
+  require(ingressContexts.nonEmpty,
+    s"No routing context for ingress shape ${localShape}; candidates: " +
+      routingContexts.flatMap(c => c.ingressParams.map(c.inputUnitRoutingShape)).mkString(", "))
+  private val portIdBits = log2Up(ingressContexts.map(_._2).max + 1)
+
   class IngressUnitIO extends AbstractInputUnitIO(cParam, outParams, egressParams) {
-    val in = Flipped(Decoupled(new IngressFlit(cParam.payloadBits)))
+    val port_id = Input(UInt(portIdBits.W))
+    val in = Flipped(Decoupled(new IngressFlit(
+      IngressUnit.this.cParam.payloadBits,
+      IngressUnit.this.cParam.egressIdBits)))
   }
   val io = IO(new IngressUnitIO)
+
+  private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
+    io.node_id === context.nodeId.U && io.port_id === portId.U
 
   val route_buffer = Module(new Queue(new Flit(cParam.payloadBits), 2))
   val route_q = Module(new Queue(new RouteComputerResp(outParams, egressParams), 2,
     flow=combineRCVA))
 
-  assert(!(io.in.valid && !cParam.possibleFlows.toSeq.map(_.egressId.U === io.in.bits.egress_id).orR))
+  private val flowEntries = ingressContexts.flatMap { case (context, portId, param) =>
+    RouterRoutingContext.orderedFlows(param.possibleFlows).map { flow =>
+      (context, portId, flow)
+    }
+  }
+  private val flowMatches = flowEntries.map { case (context, portId, flow) =>
+    contextMatch(context, portId) && flow.egressId.U === io.in.bits.egress_id
+  }
+
+  assert(!(io.in.valid && !flowMatches.orR))
 
   route_buffer.io.enq.bits.head := io.in.bits.head
   route_buffer.io.enq.bits.tail := io.in.bits.tail
-  val flows = cParam.possibleFlows.toSeq
-  if (flows.size == 0) {
+  if (flowEntries.isEmpty) {
     route_buffer.io.enq.bits.flow := DontCare
   } else {
-    route_buffer.io.enq.bits.flow.ingress_node    := cParam.destId.U
-    route_buffer.io.enq.bits.flow.ingress_node_id := ingressNodeId.U
-    route_buffer.io.enq.bits.flow.vnet_id         := cParam.vNetId.U
+    route_buffer.io.enq.bits.flow.ingress_node    := io.node_id
+    route_buffer.io.enq.bits.flow.ingress_node_id := io.port_id
+    route_buffer.io.enq.bits.flow.vnet_id         := Mux1H(
+      flowMatches, flowEntries.map(_._3.vNetId.U))
     route_buffer.io.enq.bits.flow.egress_node    := Mux1H(
-      flows.map(_.egressId.U === io.in.bits.egress_id),
-      flows.map(_.egressNode.U)
+      flowMatches, flowEntries.map(_._3.egressNode.U)
     )
     route_buffer.io.enq.bits.flow.egress_node_id := Mux1H(
-      flows.map(_.egressId.U === io.in.bits.egress_id),
-      flows.map(_.egressNodeId.U)
+      flowMatches, flowEntries.map(_._3.egressNodeId.U)
     )
   }
   route_buffer.io.enq.bits.payload := io.in.bits.payload
@@ -52,7 +82,7 @@ class IngressUnit(
   io.router_req.bits.src_virt_id := 0.U
   io.router_req.bits.flow := route_buffer.io.enq.bits.flow
 
-  val at_dest = route_buffer.io.enq.bits.flow.egress_node === nodeId.U
+  val at_dest = route_buffer.io.enq.bits.flow.egress_node === io.node_id
   route_buffer.io.enq.valid := io.in.valid && (
     io.router_req.ready || !io.in.bits.head || at_dest)
   io.router_req.valid := io.in.valid && route_buffer.io.enq.ready && io.in.bits.head && !at_dest
@@ -65,7 +95,11 @@ class IngressUnit(
     route_q.io.enq.valid := true.B
     route_q.io.enq.bits.vc_sel.foreach(_.foreach(_ := false.B))
     for (o <- 0 until nEgress) {
-      when (egressParams(o).egressId.U === io.in.bits.egress_id) {
+      val selectEgress = ingressContexts.map { case (context, portId, _) =>
+        contextMatch(context, portId) &&
+          context.egressParams(o).egressId.U === io.in.bits.egress_id
+      }.orR
+      when (selectEgress) {
         route_q.io.enq.bits.vc_sel(o+nOutputs)(0) := true.B
       }
     }

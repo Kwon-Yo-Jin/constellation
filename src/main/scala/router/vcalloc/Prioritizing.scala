@@ -21,32 +21,49 @@ trait Prioritizing { this: VCAllocator =>
     fire: Bool): MixedVec[Vec[Bool]] = {
     val w = in.getWidth
     if (w > 1) {
-      val nPrios = (allOutParams ++ allInParams)
-        .map(_.channelRoutingInfos).flatten.map(c => routingRelation.getNPrios(c)).max
+      val localContext = RouterRoutingContext(-1, inParams, outParams, ingressParams, egressParams)
+      val compatibleContexts = routingContexts.filter(_.hasSamePolicyShape(localContext))
+      require(compatibleContexts.nonEmpty)
+      val nPrios = compatibleContexts.flatMap(c => c.allOutParams ++ c.allInParams)
+        .flatMap(_.channelRoutingInfos).map(c => routingRelation.getNPrios(c)).max
 
       case class PrioHelper(prio: Int, outId: Int, outVId: Int, inId: Int, inVId: Int, flow: FlowRoutingInfo)
 
-      val prio_map = (0 until allOutParams.size).map { i => (0 until allOutParams(i).nVirtualChannels).map { j =>
-        (0 until allInParams.size).map { m => (0 until allInParams(m).nVirtualChannels).map { n =>
-          val flows = allInParams(m) match {
-            case iP: ChannelParams => iP.virtualChannelParams(n).possibleFlows
-            case iP: IngressChannelParams => iP.possibleFlows
-          }
-          flows.map { flow =>
-            val prio = if (i >= outParams.size) {
-              // egress. Fixed prio of 0
-              0
-            } else {
-              routingRelation.getPrio(
-                allInParams(m).channelRoutingInfos(n),
-                allOutParams(i).channelRoutingInfos(j),
-                flow)
+      val prioMaps = compatibleContexts.map { context =>
+        val prioMap = (0 until context.allOutParams.size).flatMap { i =>
+          (0 until context.allOutParams(i).nVirtualChannels).flatMap { j =>
+            (0 until context.allInParams.size).flatMap { m =>
+              (0 until context.allInParams(m).nVirtualChannels).flatMap { n =>
+                val flows = context.allInParams(m) match {
+                  case iP: ChannelParams => iP.virtualChannelParams(n).possibleFlows
+                  case iP: IngressChannelParams => iP.possibleFlows
+                }
+                RouterRoutingContext.orderedFlows(flows).map { flow =>
+                  val outputActive = context.allOutParams(i) match {
+                    case channel: ChannelParams =>
+                      channel.virtualChannelParams(j).possibleFlows.contains(flow)
+                    case channel: EgressChannelParams =>
+                      channel.possibleFlows.contains(flow)
+                  }
+                  val prio = if (!outputActive || i >= context.outParams.size) {
+                    // Egresses have fixed priority 0.
+                    0
+                  } else {
+                    routingRelation.getPrio(
+                      context.allInParams(m).channelRoutingInfos(n),
+                      context.allOutParams(i).channelRoutingInfos(j),
+                      flow)
+                  }
+                  require(prio < nPrios && prio >= 0,
+                    s"Invalid $prio not in [0, $nPrios) ${context.allInParams(m).channelRoutingInfos(n)} ${context.allOutParams(i).channelRoutingInfos(j)}")
+                  Option.when(outputActive)(PrioHelper(prio, i, j, m, n, flow))
+                }
+              }.flatten
             }
-            require(prio < nPrios && prio >= 0, s"Invalid $prio not in [0, $nPrios) ${allInParams(m).channelRoutingInfos(n)} ${allOutParams(i).channelRoutingInfos(j)}")
-            PrioHelper(prio, i, j, m, n, flow)
           }
-        }}
-      }}.flatten.flatten.flatten.flatten
+        }
+        context -> prioMap
+      }
 
       class LookupBundle extends Bundle {
         val vid = UInt((inVId.getWidth max 1).W)
@@ -61,15 +78,22 @@ trait Prioritizing { this: VCAllocator =>
       addr_bundle.flow := flow
 
       val in_prio = (0 until allOutParams.size).map { i => (0 until allOutParams(i).nVirtualChannels).map { j =>
-        val lookup = prio_map.filter(t => t.outId == i && t.outVId == j).map { e =>
-          val ref = (((e.inVId << addr_bundle.id.getWidth) | e.inId) << addr_bundle.flow.getWidth) | e.flow.asLiteral(flow)
-          (BitPat(ref.U), BitPat((1 << e.prio).U(nPrios.W)))
+        val decodedByContext = prioMaps.map { case (context, prioMap) =>
+          val lookup = prioMap.filter(t => t.outId == i && t.outVId == j).map { e =>
+            val ref = (((e.inVId << addr_bundle.id.getWidth) | e.inId) <<
+              addr_bundle.flow.getWidth) | e.flow.asLiteral(flow)
+            (BitPat(ref.U(addr_bundle.getWidth.W)), BitPat((1 << e.prio).U(nPrios.W)))
+          }
+          val decoded = if (lookup.isEmpty) {
+            0.U(nPrios.W)
+          } else if (lookup.map(_._2).distinct.size == 1) {
+            BitPat.bitPatToUInt(lookup.head._2)
+          } else {
+            DecodeLogic(addr, BitPat.dontCare(nPrios), lookup)
+          }
+          (io.node_id === context.nodeId.U) -> decoded
         }
-        if (lookup.map(_._2).distinct.size == 1) {
-          Mux(in(i)(j), BitPat.bitPatToUInt(lookup.head._2), 0.U(nPrios.W))
-        } else {
-          Mux(in(i)(j), DecodeLogic(addr, BitPat.dontCare(nPrios), lookup), 0.U(nPrios.W))
-        }
+        Mux(in(i)(j), PriorityMux(decodedByContext), 0.U(nPrios.W))
       }}
 
       val mask = RegInit(0.U(w.W))

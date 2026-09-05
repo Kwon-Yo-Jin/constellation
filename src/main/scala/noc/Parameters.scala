@@ -122,7 +122,8 @@ object InternalNoCParams {
       IngressChannelParams(
         user = u,
         ingressId = i,
-        flows = flows
+        flows = flows,
+        egressIdBits = log2Up(nocParams.egresses.size)
       )
     }}
     val egressParams = nocParams.egresses.zipWithIndex.map { case (u,e) => {
@@ -130,7 +131,8 @@ object InternalNoCParams {
       EgressChannelParams(
         user = u,
         egressId = e,
-        flows = flows
+        flows = flows,
+        ingressIdBits = log2Up(nocParams.ingresses.size)
       )
     }}
 

@@ -21,8 +21,8 @@ object ChannelImp extends SimpleNodeImp[EmptyParams, ChannelParams, ChannelEdgeP
   }
 
   override def monitor(bundle: Channel, edge: ChannelEdgeParams): Unit = {
-    val monitor = Module(new NoCMonitor(edge.cp)(edge.p))
-    monitor.io.in := bundle
+    // Physical-channel monitors are instantiated in Router, where runtime
+    // node and input-port IDs are available for clone-safe flow checking.
   }
   // TODO: Add nodepath stuff? override def mixO, override def mixI
 }

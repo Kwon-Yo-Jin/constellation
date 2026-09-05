@@ -29,7 +29,6 @@ class AbstractOutputUnitIO(
   val ingressParams: Seq[IngressChannelParams],
   val cParam: BaseChannelParams
 )(implicit val p: Parameters) extends Bundle with HasRouterInputParams {
-  val nodeId = cParam.srcId
   val nVirtualChannels = cParam.nVirtualChannels
   val in = Flipped(Vec(cParam.srcSpeedup, Valid(new Flit(cParam.payloadBits))))
   val credit_available = Output(Vec(nVirtualChannels, Bool()))
@@ -44,8 +43,6 @@ abstract class AbstractOutputUnit(
   val ingressParams: Seq[IngressChannelParams],
   val cParam: BaseChannelParams
 )(implicit val p: Parameters) extends Module with HasRouterInputParams with HasNoCParams {
-  val nodeId = cParam.srcId
-
   def io: AbstractOutputUnitIO
 }
 
@@ -53,7 +50,7 @@ class OutputUnit(inParams: Seq[ChannelParams], ingressParams: Seq[IngressChannel
   (implicit p: Parameters) extends AbstractOutputUnit(inParams, ingressParams, cParam)(p) {
 
   class OutputUnitIO extends AbstractOutputUnitIO(inParams, ingressParams, cParam) {
-    val out = new Channel(cParam.asInstanceOf[ChannelParams])
+    val out = new Channel(this.cParam.asInstanceOf[ChannelParams])
   }
   val io = IO(new OutputUnitIO)
 

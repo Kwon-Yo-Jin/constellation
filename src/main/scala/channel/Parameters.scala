@@ -144,7 +144,8 @@ case class IngressChannelParams(
   destId: Int,
   possibleFlows: Set[FlowRoutingInfo],
   vNetId: Int,
-  payloadBits: Int
+  payloadBits: Int,
+  egressIdBits: Int
 ) extends TerminalChannelParams {
   val srcId = -1
   val channelRoutingInfos = Seq(ChannelRoutingInfo(src=(-1), vc=0, dst=destId, n_vc=1))
@@ -154,7 +155,8 @@ object IngressChannelParams {
   def apply(
     ingressId: Int,
     flows: Seq[FlowRoutingInfo],
-    user: UserIngressParams
+    user: UserIngressParams,
+    egressIdBits: Int
   ): IngressChannelParams = {
     val ourFlows = flows.filter(_.ingressId == ingressId)
     val vNetIds = ourFlows.map(_.vNetId).toSet
@@ -164,7 +166,8 @@ object IngressChannelParams {
       vNetId = vNetIds.headOption.getOrElse(0),
       destId = user.destId,
       possibleFlows = ourFlows.toSet,
-      payloadBits = user.payloadBits
+      payloadBits = user.payloadBits,
+      egressIdBits = egressIdBits
     )
   }
 }
@@ -175,7 +178,8 @@ case class EgressChannelParams(
   egressId: Int,
   possibleFlows: Set[FlowRoutingInfo],
   srcId: Int,
-  payloadBits: Int
+  payloadBits: Int,
+  ingressIdBits: Int
 ) extends TerminalChannelParams {
   val destId = -1
   val channelRoutingInfos = Seq(ChannelRoutingInfo(src=srcId, vc=0, dst=(-1), n_vc=1))
@@ -185,7 +189,8 @@ object EgressChannelParams {
   def apply(
     egressId: Int,
     flows: Seq[FlowRoutingInfo],
-    user: UserEgressParams): EgressChannelParams = {
+    user: UserEgressParams,
+    ingressIdBits: Int): EgressChannelParams = {
     val ourFlows = flows.filter(_.egressId == egressId)
     val vNetIds = ourFlows.map(_.vNetId).toSet
     require(vNetIds.size <= 1)
@@ -193,8 +198,8 @@ object EgressChannelParams {
       egressId = egressId,
       possibleFlows = ourFlows.toSet,
       srcId = user.srcId,
-      payloadBits = user.payloadBits
+      payloadBits = user.payloadBits,
+      ingressIdBits = ingressIdBits
     )
   }
 }
-

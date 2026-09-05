@@ -14,13 +14,11 @@ class SwitchBundle(val outParams: Seq[ChannelParams], val egressParams: Seq[Egre
 }
 
 class Switch(
-  val routerParams: RouterParams,
   val inParams: Seq[ChannelParams],
   val outParams: Seq[ChannelParams],
   val ingressParams: Seq[IngressChannelParams],
   val egressParams: Seq[EgressChannelParams]
 )(implicit val p: Parameters) extends Module
-    with HasRouterParams
     with HasRouterInputParams
     with HasRouterOutputParams {
 
