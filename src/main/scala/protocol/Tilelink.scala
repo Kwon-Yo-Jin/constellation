@@ -2,6 +2,7 @@ package constellation.protocol
 
 import chisel3._
 import chisel3.util._
+import chisel3.experimental.CloneModuleAsRecord
 
 import constellation.channel._
 import constellation.noc._
@@ -35,13 +36,14 @@ trait TLFieldHelper {
 }
 
 class TLMasterToNoC(
-  edgeIn: TLEdge, edgesOut: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesOut: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   slaveToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = Flipped(new TLBundle(wideBundle))
     val flits = new Bundle {
       val a = Decoupled(new IngressFlit(flitWidth))
@@ -51,11 +53,16 @@ class TLMasterToNoC(
       val e = Decoupled(new IngressFlit(flitWidth))
     }
   })
-  val a = Module(new TLAToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 0, sourceStart))
-  val b = Module(new TLBFromNoC(edgeIn, wideBundle, sourceSize))
-  val c = Module(new TLCToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 1, sourceStart))
-  val d = Module(new TLDFromNoC(edgeIn, wideBundle, sourceSize))
-  val e = Module(new TLEToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 2))
+  val a = Module(new TLAToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 0))
+  val b = Module(new TLBFromNoC(contexts, wideBundle, endpointIdBits))
+  val c = Module(new TLCToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 1))
+  val d = Module(new TLDFromNoC(contexts, wideBundle, endpointIdBits))
+  val e = Module(new TLEToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 2))
+  a.io.endpoint_id := io.endpoint_id
+  b.io.endpoint_id := io.endpoint_id
+  c.io.endpoint_id := io.endpoint_id
+  d.io.endpoint_id := io.endpoint_id
+  e.io.endpoint_id := io.endpoint_id
   a.io.protocol <> io.tilelink.a
   io.tilelink.b <> b.io.protocol
   c.io.protocol <> io.tilelink.c
@@ -70,13 +77,14 @@ class TLMasterToNoC(
 }
 
 class TLMasterACDToNoC(
- edgeIn: TLEdge, edgesOut: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesOut: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   slaveToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = Flipped(new TLBundle(wideBundle))
     val flits = new Bundle {
       val a = Decoupled(new IngressFlit(flitWidth))
@@ -85,9 +93,12 @@ class TLMasterACDToNoC(
     }
   })
   io.tilelink := DontCare
-  val a = Module(new TLAToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 0, sourceStart))
-  val c = Module(new TLCToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 1, sourceStart))
-  val d = Module(new TLDFromNoC(edgeIn, wideBundle, sourceSize))
+  val a = Module(new TLAToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 0))
+  val c = Module(new TLCToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 1))
+  val d = Module(new TLDFromNoC(contexts, wideBundle, endpointIdBits))
+  a.io.endpoint_id := io.endpoint_id
+  c.io.endpoint_id := io.endpoint_id
+  d.io.endpoint_id := io.endpoint_id
   a.io.protocol <> io.tilelink.a
   c.io.protocol <> io.tilelink.c
   io.tilelink.d <> d.io.protocol
@@ -98,13 +109,14 @@ class TLMasterACDToNoC(
 }
 
 class TLMasterBEToNoC(
-  edgeIn: TLEdge, edgesOut: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesOut: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   slaveToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = Flipped(new TLBundle(wideBundle))
     val flits = new Bundle {
       val b = Flipped(Decoupled(new EgressFlit(flitWidth)))
@@ -112,8 +124,10 @@ class TLMasterBEToNoC(
     }
   })
   io.tilelink := DontCare
-  val b = Module(new TLBFromNoC(edgeIn, wideBundle, sourceSize))
-  val e = Module(new TLEToNoC(edgeIn, edgesOut, wideBundle, (i) => slaveToEgressOffset(i) + 0))
+  val b = Module(new TLBFromNoC(contexts, wideBundle, endpointIdBits))
+  val e = Module(new TLEToNoC(contexts, edgesOut, wideBundle, endpointIdBits, (i) => slaveToEgressOffset(i) + 0))
+  b.io.endpoint_id := io.endpoint_id
+  e.io.endpoint_id := io.endpoint_id
   io.tilelink.b <> b.io.protocol
   e.io.protocol <> io.tilelink.e
 
@@ -123,13 +137,14 @@ class TLMasterBEToNoC(
 
 
 class TLSlaveToNoC(
-  edgeOut: TLEdge, edgesIn: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesIn: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   masterToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = new TLBundle(wideBundle)
     val flits = new Bundle {
       val a = Flipped(Decoupled(new EgressFlit(flitWidth)))
@@ -140,11 +155,16 @@ class TLSlaveToNoC(
     }
   })
 
-  val a = Module(new TLAFromNoC(edgeOut, wideBundle))
-  val b = Module(new TLBToNoC(edgeOut, edgesIn, wideBundle, (i) => masterToEgressOffset(i) + 0))
-  val c = Module(new TLCFromNoC(edgeOut, wideBundle))
-  val d = Module(new TLDToNoC(edgeOut, edgesIn, wideBundle, (i) => masterToEgressOffset(i) + 1, sourceStart))
-  val e = Module(new TLEFromNoC(edgeOut, wideBundle, sourceSize))
+  val a = Module(new TLAFromNoC(wideBundle, endpointIdBits))
+  val b = Module(new TLBToNoC(contexts, edgesIn, wideBundle, endpointIdBits, (i) => masterToEgressOffset(i) + 0))
+  val c = Module(new TLCFromNoC(wideBundle, endpointIdBits))
+  val d = Module(new TLDToNoC(contexts, edgesIn, wideBundle, endpointIdBits, (i) => masterToEgressOffset(i) + 1))
+  val e = Module(new TLEFromNoC(contexts, wideBundle, endpointIdBits))
+  a.io.endpoint_id := io.endpoint_id
+  b.io.endpoint_id := io.endpoint_id
+  c.io.endpoint_id := io.endpoint_id
+  d.io.endpoint_id := io.endpoint_id
+  e.io.endpoint_id := io.endpoint_id
   io.tilelink.a <> a.io.protocol
   b.io.protocol <> io.tilelink.b
   io.tilelink.c <> c.io.protocol
@@ -159,13 +179,14 @@ class TLSlaveToNoC(
 }
 
 class TLSlaveACDToNoC(
-  edgeOut: TLEdge, edgesIn: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesIn: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   masterToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = new TLBundle(wideBundle)
     val flits = new Bundle {
       val a = Flipped(Decoupled(new EgressFlit(flitWidth)))
@@ -174,9 +195,12 @@ class TLSlaveACDToNoC(
     }
   })
   io.tilelink := DontCare
-  val a = Module(new TLAFromNoC(edgeOut, wideBundle))
-  val c = Module(new TLCFromNoC(edgeOut, wideBundle))
-  val d = Module(new TLDToNoC(edgeOut, edgesIn, wideBundle, (i) => masterToEgressOffset(i) + 0, sourceStart))
+  val a = Module(new TLAFromNoC(wideBundle, endpointIdBits))
+  val c = Module(new TLCFromNoC(wideBundle, endpointIdBits))
+  val d = Module(new TLDToNoC(contexts, edgesIn, wideBundle, endpointIdBits, (i) => masterToEgressOffset(i) + 0))
+  a.io.endpoint_id := io.endpoint_id
+  c.io.endpoint_id := io.endpoint_id
+  d.io.endpoint_id := io.endpoint_id
   io.tilelink.a <> a.io.protocol
   io.tilelink.c <> c.io.protocol
   d.io.protocol <> io.tilelink.d
@@ -187,13 +211,14 @@ class TLSlaveACDToNoC(
 }
 
 class TLSlaveBEToNoC(
-  edgeOut: TLEdge, edgesIn: Seq[TLEdge],
-  sourceStart: Int, sourceSize: Int,
+  contexts: Seq[TLEndpointContext], edgesIn: Seq[TLEdge],
+  endpointIdBits: Int,
   wideBundle: TLBundleParameters,
   masterToEgressOffset: Int => Int,
   flitWidth: Int
 )(implicit p: Parameters) extends Module {
   val io = IO(new Bundle {
+    val endpoint_id = Input(UInt(endpointIdBits.W))
     val tilelink = new TLBundle(wideBundle)
     val flits = new Bundle {
       val b = Decoupled(new IngressFlit(flitWidth))
@@ -201,8 +226,10 @@ class TLSlaveBEToNoC(
     }
   })
   io.tilelink := DontCare
-  val b = Module(new TLBToNoC(edgeOut, edgesIn, wideBundle, (i) => masterToEgressOffset(i) + 0))
-  val e = Module(new TLEFromNoC(edgeOut, wideBundle, sourceSize))
+  val b = Module(new TLBToNoC(contexts, edgesIn, wideBundle, endpointIdBits, (i) => masterToEgressOffset(i) + 0))
+  val e = Module(new TLEFromNoC(contexts, wideBundle, endpointIdBits))
+  b.io.endpoint_id := io.endpoint_id
+  e.io.endpoint_id := io.endpoint_id
   b.io.protocol <> io.tilelink.b
   io.tilelink.e <> e.io.protocol
 
@@ -225,6 +252,39 @@ trait TileLinkProtocolParams extends ProtocolParams with TLFieldHelper {
   def genBundle = new TLBundle(wideBundle)
   def inputIdRanges = TLXbar.mapInputIds(edgesIn.map(_.client))
   def outputIdRanges = TLXbar.mapOutputIds(edgesOut.map(_.manager))
+
+  private def localPortIds(nodes: Seq[Int]): Seq[Int] = nodes.indices.map { i =>
+    nodes.take(i).count(_ == nodes(i))
+  }
+  private def maxPortsPerNode(nodes: Seq[Int]): Int =
+    nodes.groupBy(identity).values.map(_.size).foldLeft(1)(math.max)
+  def endpointPortBits: Int = log2Up(math.max(
+    maxPortsPerNode(edgeInNodes), maxPortsPerNode(edgeOutNodes)))
+  def endpointNodeBits: Int = log2Up((edgeInNodes ++ edgeOutNodes).max + 1)
+  def endpointIdBits: Int = endpointNodeBits + endpointPortBits
+  private def encodedEndpointIds(nodes: Seq[Int]): Seq[Int] = {
+    val ids = nodes.zip(localPortIds(nodes)).map { case (nodeId, portId) =>
+      (nodeId << endpointPortBits) | portId
+    }
+    require(ids.distinct.size == ids.size)
+    ids
+  }
+  def masterEndpointContexts: Seq[TLEndpointContext] =
+    encodedEndpointIds(edgeInNodes).lazyZip(edgesIn).lazyZip(inputIdRanges).map {
+      case (endpointId, edge, range) =>
+        TLEndpointContext(endpointId, edge, range.start, range.size)
+    }
+  def slaveEndpointContexts: Seq[TLEndpointContext] =
+    encodedEndpointIds(edgeOutNodes).lazyZip(edgesOut).lazyZip(outputIdRanges).map {
+      case (endpointId, edge, range) =>
+        TLEndpointContext(endpointId, edge, range.start, range.size)
+    }
+  def masterEndpointId(index: Int): UInt =
+    Cat(edgeInNodes(index).U(endpointNodeBits.W),
+      localPortIds(edgeInNodes)(index).U(endpointPortBits.W))
+  def slaveEndpointId(index: Int): UInt =
+    Cat(edgeOutNodes(index).U(endpointNodeBits.W),
+      localPortIds(edgeOutNodes)(index).U(endpointPortBits.W))
 
   val vNetBlocking = (blocker: Int, blockee: Int) => blocker < blockee
 
@@ -272,58 +332,64 @@ case class TileLinkABCDEProtocolParams(
     val ingresses = terminals.ingress
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {
+      val masterPrototype = Module(new TLMasterToNoC(
+        masterEndpointContexts, edgesOut, endpointIdBits,
+        wideBundle,
+        (s) => s * 3 + edgesIn.size * 2 + egressOffset,
+        minPayloadWidth
+      ))
       edgesIn.zipWithIndex.map { case (e,i) =>
-        val nif_master = Module(new TLMasterToNoC(
-          e, edgesOut, inputIdRanges(i).start, inputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 3 + edgesIn.size * 2 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_master.io.tilelink := DontCare
-        nif_master.io.tilelink.a.valid := false.B
-        nif_master.io.tilelink.c.valid := false.B
-        nif_master.io.tilelink.e.valid := false.B
+        val nif_master = if (i == 0) masterPrototype.io else
+          CloneModuleAsRecord(masterPrototype).apply("io").asInstanceOf[masterPrototype.io.type]
+        nif_master.endpoint_id := masterEndpointId(i)
+        nif_master.tilelink := DontCare
+        nif_master.tilelink.a.valid := false.B
+        nif_master.tilelink.c.valid := false.B
+        nif_master.tilelink.e.valid := false.B
 
-        TLConnect(nif_master.io.tilelink.a, protocol.in(i).a)
-        TLConnect(protocol.in(i).d, nif_master.io.tilelink.d)
+        TLConnect(nif_master.tilelink.a, protocol.in(i).a)
+        TLConnect(protocol.in(i).d, nif_master.tilelink.d)
 
         if (protocol.in(i).params.hasBCE) {
-          TLConnect(protocol.in(i).b, nif_master.io.tilelink.b)
-          TLConnect(nif_master.io.tilelink.c, protocol.in(i).c)
-          TLConnect(nif_master.io.tilelink.e, protocol.in(i).e)
+          TLConnect(protocol.in(i).b, nif_master.tilelink.b)
+          TLConnect(nif_master.tilelink.c, protocol.in(i).c)
+          TLConnect(nif_master.tilelink.e, protocol.in(i).e)
         }
 
-        ingresses(i * 3 + 0).flit <> nif_master.io.flits.a
-        ingresses(i * 3 + 1).flit <> nif_master.io.flits.c
-        ingresses(i * 3 + 2).flit <> nif_master.io.flits.e
-        nif_master.io.flits.b <> egresses(i * 2 + 0).flit
-        nif_master.io.flits.d <> egresses(i * 2 + 1).flit
+        ingresses(i * 3 + 0).flit <> nif_master.flits.a
+        ingresses(i * 3 + 1).flit <> nif_master.flits.c
+        ingresses(i * 3 + 2).flit <> nif_master.flits.e
+        nif_master.flits.b <> egresses(i * 2 + 0).flit
+        nif_master.flits.d <> egresses(i * 2 + 1).flit
       }
+      val slavePrototype = Module(new TLSlaveToNoC(
+        slaveEndpointContexts, edgesIn, endpointIdBits,
+        wideBundle,
+        (s) => s * 2 + egressOffset,
+        minPayloadWidth
+      ))
       edgesOut.zipWithIndex.map { case (e,i) =>
-        val nif_slave = Module(new TLSlaveToNoC(
-          e, edgesIn, outputIdRanges(i).start, outputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 2 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_slave.io.tilelink := DontCare
-        nif_slave.io.tilelink.b.valid := false.B
-        nif_slave.io.tilelink.d.valid := false.B
+        val nif_slave = if (i == 0) slavePrototype.io else
+          CloneModuleAsRecord(slavePrototype).apply("io").asInstanceOf[slavePrototype.io.type]
+        nif_slave.endpoint_id := slaveEndpointId(i)
+        nif_slave.tilelink := DontCare
+        nif_slave.tilelink.b.valid := false.B
+        nif_slave.tilelink.d.valid := false.B
 
-        TLConnect(protocol.out(i).a, nif_slave.io.tilelink.a)
-        TLConnect(nif_slave.io.tilelink.d, protocol.out(i).d)
+        TLConnect(protocol.out(i).a, nif_slave.tilelink.a)
+        TLConnect(nif_slave.tilelink.d, protocol.out(i).d)
 
         if (protocol.out(i).params.hasBCE) {
-          TLConnect(nif_slave.io.tilelink.b, protocol.out(i).b)
-          TLConnect(protocol.out(i).c, nif_slave.io.tilelink.c)
-          TLConnect(protocol.out(i).e, nif_slave.io.tilelink.e)
+          TLConnect(nif_slave.tilelink.b, protocol.out(i).b)
+          TLConnect(protocol.out(i).c, nif_slave.tilelink.c)
+          TLConnect(protocol.out(i).e, nif_slave.tilelink.e)
         }
 
-        ingresses(i * 2 + 0 + edgesIn.size * 3).flit <> nif_slave.io.flits.b
-        ingresses(i * 2 + 1 + edgesIn.size * 3).flit <> nif_slave.io.flits.d
-        nif_slave.io.flits.a <> egresses(i * 3 + 0 + edgesIn.size * 2).flit
-        nif_slave.io.flits.c <> egresses(i * 3 + 1 + edgesIn.size * 2).flit
-        nif_slave.io.flits.e <> egresses(i * 3 + 2 + edgesIn.size * 2).flit
+        ingresses(i * 2 + 0 + edgesIn.size * 3).flit <> nif_slave.flits.b
+        ingresses(i * 2 + 1 + edgesIn.size * 3).flit <> nif_slave.flits.d
+        nif_slave.flits.a <> egresses(i * 3 + 0 + edgesIn.size * 2).flit
+        nif_slave.flits.c <> egresses(i * 3 + 1 + edgesIn.size * 2).flit
+        nif_slave.flits.e <> egresses(i * 3 + 2 + edgesIn.size * 2).flit
       }
     } }
   }
@@ -359,50 +425,56 @@ case class TileLinkACDProtocolParams(
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {
       protocol := DontCare
+      val masterPrototype = Module(new TLMasterACDToNoC(
+        masterEndpointContexts, edgesOut, endpointIdBits,
+        wideBundle,
+        (s) => s * 2 + edgesIn.size * 1 + egressOffset,
+        minPayloadWidth
+      ))
       edgesIn.zipWithIndex.map { case (e,i) =>
-        val nif_master_acd = Module(new TLMasterACDToNoC(
-          e, edgesOut, inputIdRanges(i).start, inputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 2 + edgesIn.size * 1 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_master_acd.io.tilelink := DontCare
-        nif_master_acd.io.tilelink.a.valid := false.B
-        nif_master_acd.io.tilelink.c.valid := false.B
-        nif_master_acd.io.tilelink.e.valid := false.B
+        val nif_master_acd = if (i == 0) masterPrototype.io else
+          CloneModuleAsRecord(masterPrototype).apply("io").asInstanceOf[masterPrototype.io.type]
+        nif_master_acd.endpoint_id := masterEndpointId(i)
+        nif_master_acd.tilelink := DontCare
+        nif_master_acd.tilelink.a.valid := false.B
+        nif_master_acd.tilelink.c.valid := false.B
+        nif_master_acd.tilelink.e.valid := false.B
 
-        TLConnect(nif_master_acd.io.tilelink.a, protocol.in(i).a)
-        TLConnect(protocol.in(i).d, nif_master_acd.io.tilelink.d)
+        TLConnect(nif_master_acd.tilelink.a, protocol.in(i).a)
+        TLConnect(protocol.in(i).d, nif_master_acd.tilelink.d)
 
         if (protocol.in(i).params.hasBCE) {
-          TLConnect(nif_master_acd.io.tilelink.c, protocol.in(i).c)
+          TLConnect(nif_master_acd.tilelink.c, protocol.in(i).c)
         }
 
-        ingresses(i * 2 + 0).flit <> nif_master_acd.io.flits.a
-        ingresses(i * 2 + 1).flit <> nif_master_acd.io.flits.c
-        nif_master_acd.io.flits.d <> egresses(i * 1 + 0).flit
+        ingresses(i * 2 + 0).flit <> nif_master_acd.flits.a
+        ingresses(i * 2 + 1).flit <> nif_master_acd.flits.c
+        nif_master_acd.flits.d <> egresses(i * 1 + 0).flit
       }
+      val slavePrototype = Module(new TLSlaveACDToNoC(
+        slaveEndpointContexts, edgesIn, endpointIdBits,
+        wideBundle,
+        (s) => s * 1 + egressOffset,
+        minPayloadWidth
+      ))
       edgesOut.zipWithIndex.map { case (e,i) =>
-        val nif_slave_acd = Module(new TLSlaveACDToNoC(
-          e, edgesIn, outputIdRanges(i).start, outputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 1 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_slave_acd.io.tilelink := DontCare
-        nif_slave_acd.io.tilelink.b.valid := false.B
-        nif_slave_acd.io.tilelink.d.valid := false.B
+        val nif_slave_acd = if (i == 0) slavePrototype.io else
+          CloneModuleAsRecord(slavePrototype).apply("io").asInstanceOf[slavePrototype.io.type]
+        nif_slave_acd.endpoint_id := slaveEndpointId(i)
+        nif_slave_acd.tilelink := DontCare
+        nif_slave_acd.tilelink.b.valid := false.B
+        nif_slave_acd.tilelink.d.valid := false.B
 
-        TLConnect(protocol.out(i).a, nif_slave_acd.io.tilelink.a)
-        TLConnect(nif_slave_acd.io.tilelink.d, protocol.out(i).d)
+        TLConnect(protocol.out(i).a, nif_slave_acd.tilelink.a)
+        TLConnect(nif_slave_acd.tilelink.d, protocol.out(i).d)
 
         if (protocol.out(i).params.hasBCE) {
-          TLConnect(protocol.out(i).c, nif_slave_acd.io.tilelink.c)
+          TLConnect(protocol.out(i).c, nif_slave_acd.tilelink.c)
         }
 
-        ingresses(i * 1 + 0 + edgesIn.size * 2).flit <> nif_slave_acd.io.flits.d
-        nif_slave_acd.io.flits.a <> egresses(i * 2 + 0 + edgesIn.size * 1).flit
-        nif_slave_acd.io.flits.c <> egresses(i * 2 + 1 + edgesIn.size * 1).flit
+        ingresses(i * 1 + 0 + edgesIn.size * 2).flit <> nif_slave_acd.flits.d
+        nif_slave_acd.flits.a <> egresses(i * 2 + 0 + edgesIn.size * 1).flit
+        nif_slave_acd.flits.c <> egresses(i * 2 + 1 + edgesIn.size * 1).flit
       }
     }}
   }
@@ -431,44 +503,50 @@ case class TileLinkBEProtocolParams(
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {
       protocol := DontCare
+      val masterPrototype = Module(new TLMasterBEToNoC(
+        masterEndpointContexts, edgesOut, endpointIdBits,
+        wideBundle,
+        (s) => s * 1 + edgesIn.size * 1 + egressOffset,
+        minPayloadWidth
+      ))
       edgesIn.zipWithIndex.map { case (e,i) =>
-        val nif_master_be = Module(new TLMasterBEToNoC(
-          e, edgesOut, inputIdRanges(i).start, inputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 1 + edgesIn.size * 1 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_master_be.io.tilelink := DontCare
-        nif_master_be.io.tilelink.a.valid := false.B
-        nif_master_be.io.tilelink.c.valid := false.B
-        nif_master_be.io.tilelink.e.valid := false.B
+        val nif_master_be = if (i == 0) masterPrototype.io else
+          CloneModuleAsRecord(masterPrototype).apply("io").asInstanceOf[masterPrototype.io.type]
+        nif_master_be.endpoint_id := masterEndpointId(i)
+        nif_master_be.tilelink := DontCare
+        nif_master_be.tilelink.a.valid := false.B
+        nif_master_be.tilelink.c.valid := false.B
+        nif_master_be.tilelink.e.valid := false.B
 
         if (protocol.in(i).params.hasBCE) {
-          TLConnect(protocol.in(i).b, nif_master_be.io.tilelink.b)
-          TLConnect(nif_master_be.io.tilelink.e, protocol.in(i).e)
+          TLConnect(protocol.in(i).b, nif_master_be.tilelink.b)
+          TLConnect(nif_master_be.tilelink.e, protocol.in(i).e)
         }
 
-        ingresses(i * 1 + 0).flit <> nif_master_be.io.flits.e
-        nif_master_be.io.flits.b <> egresses(i * 1 + 0).flit
+        ingresses(i * 1 + 0).flit <> nif_master_be.flits.e
+        nif_master_be.flits.b <> egresses(i * 1 + 0).flit
       }
+      val slavePrototype = Module(new TLSlaveBEToNoC(
+        slaveEndpointContexts, edgesIn, endpointIdBits,
+        wideBundle,
+        (s) => s * 1 + egressOffset,
+        minPayloadWidth
+      ))
       edgesOut.zipWithIndex.map { case (e,i) =>
-        val nif_slave_be = Module(new TLSlaveBEToNoC(
-          e, edgesIn, outputIdRanges(i).start, outputIdRanges(i).size,
-          wideBundle,
-          (s) => s * 1 + egressOffset,
-          minPayloadWidth
-        ))
-        nif_slave_be.io.tilelink := DontCare
-        nif_slave_be.io.tilelink.b.valid := false.B
-        nif_slave_be.io.tilelink.d.valid := false.B
+        val nif_slave_be = if (i == 0) slavePrototype.io else
+          CloneModuleAsRecord(slavePrototype).apply("io").asInstanceOf[slavePrototype.io.type]
+        nif_slave_be.endpoint_id := slaveEndpointId(i)
+        nif_slave_be.tilelink := DontCare
+        nif_slave_be.tilelink.b.valid := false.B
+        nif_slave_be.tilelink.d.valid := false.B
 
         if (protocol.out(i).params.hasBCE) {
-          TLConnect(protocol.out(i).e, nif_slave_be.io.tilelink.e)
-          TLConnect(nif_slave_be.io.tilelink.b, protocol.out(i).b)
+          TLConnect(protocol.out(i).e, nif_slave_be.tilelink.e)
+          TLConnect(nif_slave_be.tilelink.b, protocol.out(i).b)
         }
 
-        ingresses(i * 1 + 0 + edgesIn.size * 1).flit <> nif_slave_be.io.flits.b
-        nif_slave_be.io.flits.e <> egresses(i * 1 + 0 + edgesIn.size * 1).flit
+        ingresses(i * 1 + 0 + edgesIn.size * 1).flit <> nif_slave_be.flits.b
+        nif_slave_be.flits.e <> egresses(i * 1 + 0 + edgesIn.size * 1).flit
       }
     }}
   }

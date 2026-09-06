@@ -11,14 +11,13 @@ import constellation.routing.{FlowRoutingBundle}
 
 class EgressUnit(coupleSAVA: Boolean, combineSAST: Boolean,
   inParams: Seq[ChannelParams], ingressParams: Seq[IngressChannelParams],
-  cParam: EgressChannelParams, routingContexts: Seq[RouterRoutingContext])
+  cParam: EgressChannelParams, routingContexts: Seq[RouterRoutingContext],
+  topologyRoutingContexts: Seq[RouterRoutingContext])
   (implicit p: Parameters) extends AbstractOutputUnit(inParams, ingressParams, cParam)(p) {
 
-  private val localShape = EgressUnitRoutingShape(
-    cParam.nVirtualChannels, coupleSAVA, combineSAST)
   private val egressContexts = routingContexts.flatMap { context =>
     context.egressParams.zipWithIndex.collect {
-      case (param, portId) if context.egressUnitRoutingShape(param) == localShape =>
+      case (param, portId) if param.nVirtualChannels == cParam.nVirtualChannels =>
         (context, portId, param)
     }
   }
@@ -36,6 +35,16 @@ class EgressUnit(coupleSAVA: Boolean, combineSAST: Boolean,
 
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
     io.node_id === context.nodeId.U && io.port_id === portId.U
+
+  // A uniform router envelope may add inactive input ports. Preserve the
+  // original fast-path decision using each node's real topology input count.
+  private val coupleSAVAActive = if (!coupleSAVA) false.B else {
+    topologyRoutingContexts.flatMap { context =>
+      if (context.user.coupleSAVA && context.nAllInputs == 1)
+        context.egressParams.indices.map(portId => contextMatch(context, portId))
+      else Nil
+    }.foldLeft(false.B)(_ || _)
+  }
 
   val channel_empty = RegInit(true.B)
   val flow = Reg(new FlowRoutingBundle)
@@ -71,7 +80,7 @@ class EgressUnit(coupleSAVA: Boolean, combineSAST: Boolean,
 
   when (io.credit_alloc(0).alloc && io.credit_alloc(0).tail) {
     channel_empty := true.B
-    if (coupleSAVA) io.channel_status(0).occupied := false.B
+    when (coupleSAVAActive) { io.channel_status(0).occupied := false.B }
   }
 
   when (io.allocs(0).alloc) {

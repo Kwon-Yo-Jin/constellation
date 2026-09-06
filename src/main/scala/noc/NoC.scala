@@ -211,6 +211,7 @@ class NoC(nocParams: NoCParams)(implicit p: Parameters) extends LazyModule {
         outDests = context.outParams.map(_.destId),
         egressIds = context.egressParams.map(_.egressId),
         routingContexts = routerRoutingContexts,
+        topologyRoutingContexts = actualRouterContexts,
         topologyContext = topologyContext
       )(iP)
       val cloneKey = context.hardwareShape ->

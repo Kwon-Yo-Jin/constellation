@@ -179,6 +179,7 @@ class Router(
   outDests: Seq[Int],
   egressIds: Seq[Int],
   routingContexts: Seq[RouterRoutingContext],
+  topologyRoutingContexts: Seq[RouterRoutingContext],
   topologyContext: RouterRoutingContext
 )(implicit p: Parameters) extends LazyModule with HasNoCParams with HasRouterParams {
   val allPreDiplomaticInParams = preDiplomaticInParams ++ preDiplomaticIngressParams
@@ -266,9 +267,9 @@ class Router(
       Module(new OutputUnit(inParams, ingressParams, u))
         .suggestName(s"output_unit_$i")}
     val egress_units = egressParams.zipWithIndex.map { case (u,i) =>
-      Module(new EgressUnit(routerParams.user.coupleSAVA && all_input_units.size == 1,
+      Module(new EgressUnit(routerParams.user.coupleSAVA,
         routerParams.user.combineSAST,
-        inParams, ingressParams, u, routingContexts))
+        inParams, ingressParams, u, routingContexts, topologyRoutingContexts))
         .suggestName(s"egress_unit_${i+nOutputs}")}
     val all_output_units = output_units ++ egress_units
 
