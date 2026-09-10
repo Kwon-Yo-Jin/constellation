@@ -5,6 +5,7 @@ import chisel3.util._
 
 import constellation.channel._
 import constellation.noc._
+import constellation.topology.NodeIdLayout
 
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
@@ -303,7 +304,8 @@ case class AXI4ProtocolParams(
 
   def genIO()(implicit p: Parameters): Data = new AXI4InterconnectInterface(edgesIn, edgesOut)
   def interface(terminals: NoCTerminalIO,
-    ingressOffset: Int, egressOffset: Int, protocol: Data)(implicit p: Parameters) = {
+    ingressOffset: Int, egressOffset: Int, protocol: Data,
+    _nodeIdLayout: NodeIdLayout)(implicit p: Parameters) = {
     val ingresses = terminals.ingress
     val egresses = terminals.egress
     protocol match {

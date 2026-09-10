@@ -246,10 +246,10 @@ class NoC(nocParams: NoCParams)(implicit p: Parameters) extends LazyModule {
     outputFn = (prefix: UInt, n: Int) => {
       require(n == generatedRouterIds.size)
       generatedRouterIds.map { i =>
-        dontTouch(prefix | i.U(log2Ceil(nNodes).W))
+        dontTouch(prefix | internalParams.nodeIdLayout.encode(i).U(internalParams.nodeIdLayout.width.W))
       }
     },
-    default = Some(() => 0.U(log2Ceil(nNodes).W)),
+    default = Some(() => 0.U(internalParams.nodeIdLayout.width.W)),
     inputRequiresOutput = true,
     shouldBeInlined = false
   )(iP)).node

@@ -14,7 +14,7 @@ import freechips.rocketchip.tilelink._
 /** Elaboration-time information selected by the runtime endpoint ID.
   * endpointId is Cat(topology node ID, node-local protocol port ID).
   */
-case class TLEndpointContext(endpointId: Int, edge: TLEdge, idStart: Int, idSize: Int)
+case class TLEndpointContext(endpointId: BigInt, edge: TLEdge, idStart: Int, idSize: Int)
 
 abstract class TLChannelToNoC[T <: TLChannel](
   gen: => T, beatBytes: Int, maxTransfer: Int, endpointIdBits: Int,

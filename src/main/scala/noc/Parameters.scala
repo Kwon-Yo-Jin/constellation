@@ -9,7 +9,7 @@ import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, BundleBridgeSi
 import constellation.router._
 import constellation.channel._
 import constellation.routing._
-import constellation.topology.{PhysicalTopology, UnidirectionalLine}
+import constellation.topology.{NodeIdLayout, PhysicalTopology, UnidirectionalLine}
 
 // BEGIN: NoC Parameters
 case class NoCParams(
@@ -42,6 +42,7 @@ case object InternalNoCKey extends Field[InternalNoCParams]
 
 case class InternalNoCParams(
   userParams: NoCParams,
+  nodeIdLayout: NodeIdLayout,
   nVirtualNetworks: Int,
   routingRelation: RoutingRelation,
   channelParams: Seq[ChannelParams],
@@ -59,7 +60,9 @@ trait HasNoCParams {
   def nocName = nocParams.userParams.nocName
   def hasCtrl = nocParams.userParams.hasCtrl
 
-  def nodeIdBits = log2Ceil(nNodes)
+  def nodeIdLayout = nocParams.nodeIdLayout
+  def nodeIdBits = nodeIdLayout.width
+  def runtimeNodeId(topologyIndex: Int): BigInt = nodeIdLayout.encode(topologyIndex)
   def vNetBits = log2Up(nVirtualNetworks)
   def nEgresses = nocParams.egressParams.size
   def nIngresses = nocParams.ingressParams.size
@@ -75,6 +78,7 @@ trait HasNoCParams {
 object InternalNoCParams {
   def apply(nocParams: NoCParams): InternalNoCParams = {
     val nNodes = nocParams.topology.nNodes
+    val nodeIdLayout = NodeIdLayout(nocParams.topology)
     val nVirtualNetworks = nocParams.flows.map(_.vNetId).max + 1
     val nocName = nocParams.nocName
     val skipValidationChecks = nocParams.skipValidationChecks
@@ -302,6 +306,7 @@ object InternalNoCParams {
 
     InternalNoCParams(
       userParams = nocParams,
+      nodeIdLayout = nodeIdLayout,
       nVirtualNetworks = nVirtualNetworks,
       routingRelation = routingRelation,
       channelParams = finalChannelParams,

@@ -6,6 +6,7 @@ import chisel3.util._
 import constellation.channel._
 import constellation.noc._
 import constellation.router.{RouterCtrlBundle}
+import constellation.topology.NodeIdLayout
 
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
@@ -56,7 +57,8 @@ trait ProtocolParams {
     terminals: NoCTerminalIO,
     ingressOffset: Int,
     egressOffset: Int,
-    protocol: Data)(implicit p: Parameters)
+    protocol: Data,
+    nodeIdLayout: NodeIdLayout)(implicit p: Parameters): Unit
 }
 // END: ProtocolParams
 
@@ -126,6 +128,7 @@ class ProtocolNoC(params: ProtocolNoCParams)(implicit p: Parameters) extends Mod
       terminals,
       ingressOffsets(x),
       egressOffsets(x),
-      io)
+      io,
+      NodeIdLayout(nocParams.topology))
   }
 }

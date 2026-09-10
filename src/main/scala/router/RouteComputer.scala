@@ -9,7 +9,7 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.rocket.DecodeLogic
 
 import constellation.channel._
-import constellation.routing.{FlowRoutingBundle, FlowRoutingInfo}
+import constellation.routing.{FlowRoutingBundle, FlowRoutingInfo, HardwareRoutingChannel, HardwareRoutingFlow}
 import constellation.noc.{HasNoCParams}
 
 class RouteComputerReq(implicit val p: Parameters) extends Bundle with HasNoCParams {
@@ -54,6 +54,56 @@ class RouteComputer(
       resp.vc_sel := DontCare
     } else {
 
+      routingRelation.hardwareRouting match {
+        case Some(hardwareRouting) =>
+          val contextMatches = compatibleContexts.map { context =>
+            io.node_id === runtimeNodeId(context.nodeId).U
+          }
+          val sourceNode = if (i < nInputs) {
+            Mux1H(compatibleContexts.zip(contextMatches).map { case (context, active) =>
+              active -> runtimeNodeId(context.inParams(i).srcId).U(nodeIdBits.W)
+            })
+          } else {
+            io.node_id
+          }
+          val source = HardwareRoutingChannel(
+            sourceNode,
+            io.node_id,
+            req.bits.src_virt_id,
+            allInParams(i).nVirtualChannels,
+            (i >= nInputs).B)
+          val flow = HardwareRoutingFlow(
+            req.bits.flow.vnet_id,
+            req.bits.flow.ingress_node,
+            req.bits.flow.egress_node)
+
+          (0 until nAllOutputs).foreach { o =>
+            if (o < nOutputs) {
+              val nextNode = Mux1H(
+                compatibleContexts.zip(contextMatches).map { case (context, active) =>
+                  active -> runtimeNodeId(context.outParams(o).destId).U(nodeIdBits.W)
+                })
+              (0 until outParams(o).nVirtualChannels).foreach { outVId =>
+                val outputActive = Mux1H(
+                  compatibleContexts.zip(contextMatches).map { case (context, active) =>
+                    active -> context.outParams(o).virtualChannelParams(outVId)
+                      .possibleFlows.nonEmpty.B
+                  })
+                val next = HardwareRoutingChannel(
+                  io.node_id,
+                  nextNode,
+                  outVId.U,
+                  outParams(o).nVirtualChannels,
+                  false.B)
+                resp.vc_sel(o)(outVId) :=
+                  outputActive && hardwareRouting(source, next, flow)
+              }
+            } else {
+              resp.vc_sel(o)(0) := false.B
+            }
+          }
+
+        case None =>
       val addr = req.bits.asUInt
 
       def toUInt(inputVc: Int, flow: FlowRoutingInfo): UInt = {
@@ -91,7 +141,7 @@ class RouteComputer(
         }
       }
       val decoded = PriorityMux(compatibleContexts.zip(decodedByContext).map {
-        case (context, value) => (io.node_id === context.nodeId.U) -> value
+        case (context, value) => (io.node_id === runtimeNodeId(context.nodeId).U) -> value
       })
       var idx = 0
 
@@ -104,6 +154,7 @@ class RouteComputer(
         } else {
           resp.vc_sel(o)(0) := false.B
         }
+      }
       }
     }
   }

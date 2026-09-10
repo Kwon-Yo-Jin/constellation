@@ -7,6 +7,7 @@ import chisel3.experimental.CloneModuleAsRecord
 import constellation.channel._
 import constellation.noc._
 import constellation.soc.{CanAttachToGlobalNoC}
+import constellation.topology.NodeIdLayout
 
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
@@ -260,30 +261,32 @@ trait TileLinkProtocolParams extends ProtocolParams with TLFieldHelper {
     nodes.groupBy(identity).values.map(_.size).foldLeft(1)(math.max)
   def endpointPortBits: Int = log2Up(math.max(
     maxPortsPerNode(edgeInNodes), maxPortsPerNode(edgeOutNodes)))
-  def endpointNodeBits: Int = log2Up((edgeInNodes ++ edgeOutNodes).max + 1)
-  def endpointIdBits: Int = endpointNodeBits + endpointPortBits
-  private def encodedEndpointIds(nodes: Seq[Int]): Seq[Int] = {
+  def endpointNodeBits(implicit nodeIdLayout: NodeIdLayout): Int = nodeIdLayout.width
+  def endpointIdBits(implicit nodeIdLayout: NodeIdLayout): Int = endpointNodeBits + endpointPortBits
+  private def runtimeNodeId(node: Int)(implicit nodeIdLayout: NodeIdLayout): BigInt =
+    nodeIdLayout.encode(node)
+  private def encodedEndpointIds(nodes: Seq[Int])(implicit nodeIdLayout: NodeIdLayout): Seq[BigInt] = {
     val ids = nodes.zip(localPortIds(nodes)).map { case (nodeId, portId) =>
-      (nodeId << endpointPortBits) | portId
+      (runtimeNodeId(nodeId) << endpointPortBits) | portId
     }
     require(ids.distinct.size == ids.size)
     ids
   }
-  def masterEndpointContexts: Seq[TLEndpointContext] =
+  def masterEndpointContexts(implicit nodeIdLayout: NodeIdLayout, p: Parameters): Seq[TLEndpointContext] =
     encodedEndpointIds(edgeInNodes).lazyZip(edgesIn).lazyZip(inputIdRanges).map {
       case (endpointId, edge, range) =>
         TLEndpointContext(endpointId, edge, range.start, range.size)
     }
-  def slaveEndpointContexts: Seq[TLEndpointContext] =
+  def slaveEndpointContexts(implicit nodeIdLayout: NodeIdLayout, p: Parameters): Seq[TLEndpointContext] =
     encodedEndpointIds(edgeOutNodes).lazyZip(edgesOut).lazyZip(outputIdRanges).map {
       case (endpointId, edge, range) =>
         TLEndpointContext(endpointId, edge, range.start, range.size)
     }
-  def masterEndpointId(index: Int): UInt =
-    Cat(edgeInNodes(index).U(endpointNodeBits.W),
+  def masterEndpointId(index: Int)(implicit nodeIdLayout: NodeIdLayout, p: Parameters): UInt =
+    Cat(runtimeNodeId(edgeInNodes(index)).U(endpointNodeBits.W),
       localPortIds(edgeInNodes)(index).U(endpointPortBits.W))
-  def slaveEndpointId(index: Int): UInt =
-    Cat(edgeOutNodes(index).U(endpointNodeBits.W),
+  def slaveEndpointId(index: Int)(implicit nodeIdLayout: NodeIdLayout, p: Parameters): UInt =
+    Cat(runtimeNodeId(edgeOutNodes(index)).U(endpointNodeBits.W),
       localPortIds(edgeOutNodes)(index).U(endpointPortBits.W))
 
   val vNetBlocking = (blocker: Int, blockee: Int) => blocker < blockee
@@ -328,7 +331,9 @@ case class TileLinkABCDEProtocolParams(
   }}.flatten.flatten
 
   def interface(terminals: NoCTerminalIO,
-    ingressOffset: Int, egressOffset: Int, protocol: Data)(implicit p: Parameters) = {
+    ingressOffset: Int, egressOffset: Int, protocol: Data,
+    nodeIdLayout: NodeIdLayout)(implicit p: Parameters) = {
+    implicit val endpointNodeIdLayout: NodeIdLayout = nodeIdLayout
     val ingresses = terminals.ingress
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {
@@ -420,7 +425,9 @@ case class TileLinkACDProtocolParams(
 
 
   def interface(terminals: NoCTerminalIO,
-    ingressOffset: Int, egressOffset: Int, protocol: Data)(implicit p: Parameters) = {
+    ingressOffset: Int, egressOffset: Int, protocol: Data,
+    nodeIdLayout: NodeIdLayout)(implicit p: Parameters) = {
+    implicit val endpointNodeIdLayout: NodeIdLayout = nodeIdLayout
     val ingresses = terminals.ingress
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {
@@ -498,7 +505,9 @@ case class TileLinkBEProtocolParams(
   }}.flatten.flatten
 
   def interface(terminals: NoCTerminalIO,
-    ingressOffset: Int, egressOffset: Int, protocol: Data)(implicit p: Parameters) = {
+    ingressOffset: Int, egressOffset: Int, protocol: Data,
+    nodeIdLayout: NodeIdLayout)(implicit p: Parameters) = {
+    implicit val endpointNodeIdLayout: NodeIdLayout = nodeIdLayout
     val ingresses = terminals.ingress
     val egresses = terminals.egress
     protocol match { case protocol: TileLinkInterconnectInterface => {

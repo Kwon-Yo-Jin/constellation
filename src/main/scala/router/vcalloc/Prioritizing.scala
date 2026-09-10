@@ -91,7 +91,7 @@ trait Prioritizing { this: VCAllocator =>
           } else {
             DecodeLogic(addr, BitPat.dontCare(nPrios), lookup)
           }
-          (io.node_id === context.nodeId.U) -> decoded
+          (io.node_id === runtimeNodeId(context.nodeId).U) -> decoded
         }
         Mux(in(i)(j), PriorityMux(decodedByContext), 0.U(nPrios.W))
       }}

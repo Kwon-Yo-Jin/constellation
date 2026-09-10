@@ -33,7 +33,7 @@ class NoCMonitor(
   dontTouch(io.port_id)
 
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
-    io.node_id === context.nodeId.U && io.port_id === portId.U
+    io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
 
   val in_flight = RegInit(VecInit(Seq.fill(cParam.nVirtualChannels) { false.B }))
   for (i <- 0 until cParam.srcSpeedup) {

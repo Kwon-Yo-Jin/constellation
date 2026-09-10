@@ -187,7 +187,7 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
   val io = IO(new InputUnitIO)
 
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
-    io.node_id === context.nodeId.U && io.port_id === portId.U
+    io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
 
   val g_i :: g_r :: g_v :: g_a :: g_c :: Nil = Enum(5)
 

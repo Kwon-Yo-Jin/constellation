@@ -34,7 +34,7 @@ class EgressUnit(coupleSAVA: Boolean, combineSAST: Boolean,
   val io = IO(new EgressUnitIO)
 
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
-    io.node_id === context.nodeId.U && io.port_id === portId.U
+    io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
 
   // A uniform router envelope may add inactive input ports. Preserve the
   // original fast-path decision using each node's real topology input count.
@@ -64,7 +64,7 @@ class EgressUnit(coupleSAVA: Boolean, combineSAST: Boolean,
   } else {
     val matches = flowEntries.map { case (context, portId, flow) =>
       contextMatch(context, portId) &&
-        flow.ingressNode.U === io.in(0).bits.flow.ingress_node &&
+        runtimeNodeId(flow.ingressNode).U === io.in(0).bits.flow.ingress_node &&
         flow.ingressNodeId.U === io.in(0).bits.flow.ingress_node_id
     }
     q.io.enq.bits.ingress_id := Mux1H(matches,

@@ -2,6 +2,7 @@ package constellation.routing
 
 import scala.math.{min, max, pow}
 import scala.collection.mutable.HashMap
+import chisel3._
 import org.chipsalliance.cde.config.{Parameters}
 import scala.collection.immutable.ListMap
 import constellation.topology.{PhysicalTopology, Mesh2DLikePhysicalTopology, HierarchicalTopology, CustomTopology}
@@ -33,6 +34,9 @@ abstract class RoutingRelation(topo: PhysicalTopology) {
   def getPrio   (srcC: ChannelRoutingInfo,
                  nxtC: ChannelRoutingInfo,
                  flow: FlowRoutingInfo): Int = 0
+
+  /** Compact runtime implementation. None retains the exact table fallback. */
+  def hardwareRouting: Option[HardwareRouting] = None
 
   // END: RoutingRelation
 
@@ -98,6 +102,10 @@ object EscapeChannelRouting {
         normal.getPrio(nSrc, a.copy(vc=a.vc-nEscapeChannels, n_vc=a.n_vc-nEscapeChannels), flow)
       }
     }
+    override val hardwareRouting = for {
+      escapeHardware <- escape.hardwareRouting
+      normalHardware <- normal.hardwareRouting
+    } yield StructuredHardwareRouting.escape(escapeHardware, normalHardware, nEscapeChannels)
   }
 }
 
@@ -107,6 +115,10 @@ object EscapeChannelRouting {
 object AllLegalRouting {
   def apply() = (topo: PhysicalTopology) => new RoutingRelation(topo) {
     def rel(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo) = true
+    override val hardwareRouting = Some(new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = true.B
+    })
   }
 }
 
@@ -119,6 +131,10 @@ object UnidirectionalLineRouting {
     override def getPrio(src: ChannelRoutingInfo, a: ChannelRoutingInfo, flow: FlowRoutingInfo): Int = {
       max(src.dst - a.dst + getNPrios(src), 0)
     }
+    override val hardwareRouting = Some(new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = next.dst <= flow.egressNode
+    })
   }
 }
 
@@ -127,6 +143,11 @@ object BidirectionalLineRouting {
     def rel(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo) = {
       if (nxtC.src < nxtC.dst) flow.egressNode >= nxtC.dst else flow.egressNode <= nxtC.dst
     }
+    override val hardwareRouting = Some(new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool =
+        Mux(next.src < next.dst, flow.egressNode >= next.dst, flow.egressNode <= next.dst)
+    })
   }
 }
 
@@ -150,7 +171,30 @@ object UnidirectionalTorus1DDatelineRouting {
     override def isEscape(c: ChannelRoutingInfo, v: Int) = {
       c.isIngress || c.isEgress || c.vc < 2
     }
+    override val hardwareRouting = Some(new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        Mux(source.isIngress, next.vc =/= 0.U,
+          Mux(source.vc === 0.U, next.vc === 0.U,
+            Mux(next.src === (topo.nNodes - 1).U,
+              next.vc < source.vc,
+              next.vc <= source.vc &&
+                (next.vc =/= 0.U || flow.egressNode > next.src)))
+        )
+      }
+    })
   }
+}
+
+private object BidirectionalTorus1DHardware {
+  def forwardDistance(from: UInt, to: UInt, nNodes: Int): UInt =
+    Mux(to >= from, to - from, (nNodes.U - from) + to)
+
+  def forwardNeighbor(from: UInt, to: UInt, nNodes: Int): Bool =
+    Mux(from === (nNodes - 1).U, to === 0.U, to === from + 1.U)
+
+  def backwardNeighbor(from: UInt, to: UInt, nNodes: Int): Bool =
+    Mux(from === 0.U, to === (nNodes - 1).U, to + 1.U === from)
 }
 
 object BidirectionalTorus1DDatelineRouting {
@@ -176,6 +220,29 @@ object BidirectionalTorus1DDatelineRouting {
         false
       }
     }
+    override val hardwareRouting = Some(new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        Mux(source.isIngress, next.vc =/= 0.U, {
+          val clockwise = BidirectionalTorus1DHardware.forwardNeighbor(
+            next.src, next.dst, topo.nNodes)
+          val counterClockwise = BidirectionalTorus1DHardware.backwardNeighbor(
+            next.src, next.dst, topo.nNodes)
+          Mux(source.vc === 0.U, next.vc === 0.U,
+            Mux(clockwise,
+              Mux(next.src === (topo.nNodes - 1).U,
+                next.vc < source.vc,
+                next.vc <= source.vc &&
+                  (next.vc =/= 0.U || flow.egressNode > next.src)),
+              Mux(counterClockwise,
+                Mux(next.src === 0.U,
+                  next.vc < source.vc,
+                  next.vc <= source.vc &&
+                    (next.vc =/= 0.U || flow.egressNode < next.src)),
+                false.B)))
+        })
+      }
+    })
   }
 }
 
@@ -194,6 +261,22 @@ object BidirectionalTorus1DShortestRouting {
       }
       distSel && base(srcC, nxtC, flow)
     }
+    override val hardwareRouting = base.hardwareRouting.map { baseHardware => new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        val cwDist = BidirectionalTorus1DHardware.forwardDistance(
+          next.src, flow.egressNode, topo.nNodes)
+        val ccwDist = BidirectionalTorus1DHardware.forwardDistance(
+          flow.egressNode, next.src, topo.nNodes)
+        val clockwise = BidirectionalTorus1DHardware.forwardNeighbor(
+          next.src, next.dst, topo.nNodes)
+        val counterClockwise = BidirectionalTorus1DHardware.backwardNeighbor(
+          next.src, next.dst, topo.nNodes)
+        val direction = Mux(cwDist < ccwDist, clockwise,
+          Mux(cwDist > ccwDist, counterClockwise, true.B))
+        direction && baseHardware(source, next, flow)
+      }
+    }}
   }
 }
 
@@ -210,6 +293,19 @@ object BidirectionalTorus1DRandomRouting {
       }
       sel && base(srcC, nxtC, flow)
     }
+    override val hardwareRouting = base.hardwareRouting.map { baseHardware => new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        val direction = Mux(source.isIngress, true.B,
+          Mux(BidirectionalTorus1DHardware.forwardNeighbor(
+              source.src, next.src, topo.nNodes),
+            BidirectionalTorus1DHardware.forwardNeighbor(
+              next.src, next.dst, topo.nNodes),
+            BidirectionalTorus1DHardware.backwardNeighbor(
+              next.src, next.dst, topo.nNodes)))
+        direction && baseHardware(source, next, flow)
+      }
+    }}
   }
 }
 
@@ -283,6 +379,7 @@ object Mesh2DDimensionOrderedRouting {
           }
         }
       }
+      override val hardwareRouting = Some(StructuredHardwareRouting.meshDimensionOrdered(topo, firstDim))
     }
   }
 }
@@ -300,6 +397,7 @@ object Mesh2DMinimalRouting {
         val yR = (if (nodeY < nxtY) dstY >= nxtY else if (nodeY > nxtY) dstY <= nxtY else nodeY == nxtY)
         xR && yR
       }
+      override val hardwareRouting = Some(StructuredHardwareRouting.meshMinimal(topo))
     }
   }
 }
@@ -319,6 +417,7 @@ object Mesh2DWestFirstRouting {
           base(srcC, nxtC, flow)
         }
       }
+      override val hardwareRouting = base.hardwareRouting.map(StructuredHardwareRouting.meshWestFirst(topo, _))
     }
   }
 }
@@ -341,6 +440,7 @@ object Mesh2DNorthLastRouting {
           minimal
         }
       }
+      override val hardwareRouting = base.hardwareRouting.map(StructuredHardwareRouting.meshNorthLast(topo, _))
     }
   }
 }
@@ -534,6 +634,7 @@ object TerminalRouterRouting {
         !topo.isBase(c.src) || !topo.isBase(c.dst) || base.isEscape(
           c.copy(src=c.src % topo.base.nNodes, dst=c.dst % topo.base.nNodes), v)
       }
+      override val hardwareRouting = base.hardwareRouting.map(StructuredHardwareRouting.terminal(topo, _))
     }
   }
 }
@@ -567,6 +668,8 @@ object NonblockingVirtualSubnetworksRouting {
     override def isEscape(c: ChannelRoutingInfo, v: Int) = {
       base.isEscape(lower(c), 0)
     }
+    override val hardwareRouting = base.hardwareRouting.map(
+      StructuredHardwareRouting.nonblockingVirtualSubnetworks(_, n, nDedicatedChannels))
   }
 }
 
@@ -594,6 +697,8 @@ object BlockingVirtualSubnetworksRouting {
     override def isEscape(c: ChannelRoutingInfo, v: Int) = {
       c.vc >= v * nDedicated && base.isEscape(c.copy(vc=c.vc - v * nDedicated, n_vc=c.n_vc - v * nDedicated), 0)
     }
+    override val hardwareRouting = base.hardwareRouting.map(
+      StructuredHardwareRouting.blockingVirtualSubnetworks(_, nDedicated))
   }
 }
 
@@ -707,6 +812,11 @@ object HierarchicalRouting {
           }
         }
       }
+      override val hardwareRouting = for {
+        baseHardware <- base.hardwareRouting
+        if children.forall(_.hardwareRouting.nonEmpty)
+      } yield StructuredHardwareRouting.hierarchy(
+        topo, baseHardware, children.flatMap(_.hardwareRouting))
     }
   }
 }

@@ -51,19 +51,19 @@ case class FlowRoutingInfo(
 ) {
 // END: FlowRoutingInfo
   def isFlow(f: FlowRoutingBundle): Bool = {
-    (f.ingress_node === ingressNode.U &&
-      f.egress_node === egressNode.U &&
+    (f.ingress_node === f.runtimeNodeId(ingressNode).U &&
+      f.egress_node === f.runtimeNodeId(egressNode).U &&
       f.ingress_node_id === ingressNodeId.U &&
       f.egress_node_id === egressNodeId.U)
   }
   def asLiteral(b: FlowRoutingBundle): BigInt = {
     Seq(
-      (vNetId        , b.vnet_id),
-      (ingressNode   , b.ingress_node),
-      (ingressNodeId , b.ingress_node_id),
-      (egressNode    , b.egress_node),
-      (egressNodeId  , b.egress_node_id)
-    ).foldLeft(0)((l, t) => {
+      (BigInt(vNetId), b.vnet_id),
+      (b.runtimeNodeId(ingressNode), b.ingress_node),
+      (BigInt(ingressNodeId), b.ingress_node_id),
+      (b.runtimeNodeId(egressNode), b.egress_node),
+      (BigInt(egressNodeId), b.egress_node_id)
+    ).foldLeft(BigInt(0))((l, t) => {
       (l << t._2.getWidth) | t._1
     })
   }
@@ -73,9 +73,9 @@ class FlowRoutingBundle(implicit val p: Parameters) extends Bundle with HasNoCPa
   // Instead of tracking ingress/egress ID, track the physical destination id and the offset at the destination
   // This simplifies the routing tables
   val vnet_id = UInt(log2Ceil(nVirtualNetworks).W)
-  val ingress_node = UInt(log2Ceil(nNodes).W)
+  val ingress_node = UInt(nodeIdBits.W)
   val ingress_node_id = UInt(log2Ceil(maxIngressesAtNode).W)
-  val egress_node = UInt(log2Ceil(nNodes).W)
+  val egress_node = UInt(nodeIdBits.W)
   val egress_node_id = UInt(log2Ceil(maxEgressesAtNode).W)
 }
 

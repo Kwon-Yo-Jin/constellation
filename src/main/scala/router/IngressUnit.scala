@@ -44,7 +44,7 @@ class IngressUnit(
   val io = IO(new IngressUnitIO)
 
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
-    io.node_id === context.nodeId.U && io.port_id === portId.U
+    io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
 
   val route_buffer = Module(new Queue(new Flit(cParam.payloadBits), 2))
   val route_q = Module(new Queue(new RouteComputerResp(outParams, egressParams), 2,
@@ -71,7 +71,7 @@ class IngressUnit(
     route_buffer.io.enq.bits.flow.vnet_id         := Mux1H(
       flowMatches, flowEntries.map(_._3.vNetId.U))
     route_buffer.io.enq.bits.flow.egress_node    := Mux1H(
-      flowMatches, flowEntries.map(_._3.egressNode.U)
+      flowMatches, flowEntries.map(f => runtimeNodeId(f._3.egressNode).U)
     )
     route_buffer.io.enq.bits.flow.egress_node_id := Mux1H(
       flowMatches, flowEntries.map(_._3.egressNodeId.U)

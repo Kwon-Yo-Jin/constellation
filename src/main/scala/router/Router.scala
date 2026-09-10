@@ -240,7 +240,7 @@ class Router(
     require(nEgress == routerParams.nEgress)
     require(nAllInputs >= 1)
     require(nAllOutputs >= 1)
-    require(nodeId < (1 << nodeIdBits))
+    require(Router.this.runtimeNodeId(nodeId).bitLength <= nodeIdBits)
 
     val input_monitors = (io_in zip inParams).zipWithIndex.map {
       case ((in, param), portId) =>
@@ -372,19 +372,20 @@ class Router(
 
     destNodes.map(_.in(0)).zipWithIndex.foreach { case ((in, _), portId) => in.flit.map { f =>
       val sourceId = PriorityMux(compatibleRouterContexts.map { context =>
-        (runtimeNodeId === context.nodeId.U) -> context.inParams(portId).srcId.U(nodeIdBits.W)
+        (runtimeNodeId === Router.this.runtimeNodeId(context.nodeId).U) ->
+          Router.this.runtimeNodeId(context.inParams(portId).srcId).U(nodeIdBits.W)
       })
       sample(f.fire, "%d %d", sourceId, runtimeNodeId)
     } }
     ingressNodes.map(_.in(0)).zipWithIndex.foreach { case ((in, _), portId) =>
       val ingressId = PriorityMux(compatibleRouterContexts.map { context =>
-        (runtimeNodeId === context.nodeId.U) -> context.ingressParams(portId).ingressId.U(ingressIdBits.W)
+        (runtimeNodeId === Router.this.runtimeNodeId(context.nodeId).U) -> context.ingressParams(portId).ingressId.U(ingressIdBits.W)
       })
       sample(in.flit.fire, "i%d %d", ingressId, runtimeNodeId)
     }
     egressNodes.map(_.out(0)).zipWithIndex.foreach { case ((out, _), portId) =>
       val egressId = PriorityMux(compatibleRouterContexts.map { context =>
-        (runtimeNodeId === context.nodeId.U) -> context.egressParams(portId).egressId.U(egressIdBits.W)
+        (runtimeNodeId === Router.this.runtimeNodeId(context.nodeId).U) -> context.egressParams(portId).egressId.U(egressIdBits.W)
       })
       sample(out.flit.fire, "%d e%d", runtimeNodeId, egressId)
     }
