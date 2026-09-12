@@ -92,6 +92,29 @@ for e in G.edges:
 
 edge_indices = {t: 0 for t in edge_counts}
 edge_offsets = dict()
+
+def crosses_node(e):
+    x0, y0 = xys[e[0]]
+    x1, y1 = xys[e[1]]
+    dx = x1 - x0
+    dy = y1 - y0
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return False
+
+    for node, (x, y) in xys.items():
+        if node in e:
+            continue
+        projection = ((x - x0) * dx + (y - y0) * dy) / length_squared
+        if projection <= 0.0 or projection >= 1.0:
+            continue
+        closest_x = x0 + projection * dx
+        closest_y = y0 + projection * dy
+        distance_squared = (x - closest_x) ** 2 + (y - closest_y) ** 2
+        if distance_squared <= 1e-12 * max(length_squared, 1.0):
+            return True
+    return False
+
 for e in G.edges:
     if (e[0] < e[1]):
         t = (e[0], e[1])
@@ -104,6 +127,8 @@ for e in G.edges:
     offset = -0.2 + 0.4 * (i + 1.0) / (c + 1.0)
     if (flipped):
         offset = offset * -1
+    if crosses_node(e) and abs(offset) < 0.12:
+        offset = math.copysign(0.12, offset if offset != 0 else 1.0)
     edge_offsets[e] = str(offset)
     edge_indices[t] += 1
 

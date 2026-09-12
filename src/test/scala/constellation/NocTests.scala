@@ -229,3 +229,91 @@ class NoCTestEval10 extends EvalNoCTest(Seq(new EvalTestConfig10))
 class NoCTestEval11 extends EvalNoCTest(Seq(new EvalTestConfig11))
 class NoCTestEval12 extends EvalNoCTest(Seq(new EvalTestConfig12))
 class NoCTestEval13 extends EvalNoCTest(Seq(new EvalTestConfig13))
+
+class RucheMinimalRoutingPolicyTest extends AnyFlatSpec {
+  behavior of "RucheMesh2DMinimalRouting"
+
+  private def channel(src: Int, dst: Int, vc: Int = 0) =
+    constellation.routing.ChannelRoutingInfo(src, dst, vc = vc, n_vc = 2)
+
+  private def flow(dst: Int) = constellation.routing.FlowRoutingInfo(
+    ingressId = 0,
+    egressId = dst,
+    vNetId = 0,
+    ingressNode = 0,
+    ingressNodeId = 0,
+    egressNode = dst,
+    egressNodeId = 0,
+    fifo = true)
+
+  it should "allow every minimum-hop channel and prioritize Ruche skips" in {
+    val topo = constellation.topology.RucheMesh2D(
+      nX = 5, nY = 5, xRucheFactor = 2, yRucheFactor = 3)
+    val routing = constellation.routing.RucheMesh2DMinimalRouting()(topo)
+    val farFlow = flow(23)
+    val ingress = channel(-1, 0)
+
+    assert(routing(ingress, channel(0, 2), farFlow))
+    assert(routing(ingress, channel(0, 15), farFlow))
+    assert(routing(ingress, channel(0, 1), farFlow))
+    assert(routing(ingress, channel(0, 5), farFlow))
+    assert(routing.getNPrios(ingress) == 2)
+    assert(routing.getPrio(ingress, channel(0, 2), farFlow) == 0)
+    assert(routing.getPrio(ingress, channel(0, 1), farFlow) == 1)
+
+    val exactMultipleFlow = flow(24)
+    assert(!routing(ingress, channel(0, 1), exactMultipleFlow))
+    assert(routing(ingress, channel(0, 5), exactMultipleFlow))
+
+    val nearFlow = flow(6)
+    assert(routing(ingress, channel(0, 1), nearFlow))
+    assert(routing(ingress, channel(0, 5), nearFlow))
+
+    val sixBySix = constellation.topology.RucheMesh2D(6, 6, 2, 2)
+    val socRouting = constellation.routing.RucheMesh2DMinimalRouting()(sixBySix)
+    assert(socRouting(channel(-1, 0), channel(0, 1), flow(33)))
+    assert(socRouting(channel(30, 18), channel(18, 12), flow(0)))
+    assert(socRouting(channel(18, 12), channel(12, 0), flow(0)))
+  }
+
+  it should "use dimension-ordered Ruche routing only on escape channels" in {
+    val topo = constellation.topology.RucheMesh2D(
+      nX = 5, nY = 5, xRucheFactor = 2, yRucheFactor = 3)
+    val routing = constellation.routing.RucheMesh2DEscapeRouting()(topo)
+    val farFlow = flow(23)
+    val ingress = channel(-1, 0)
+
+    assert(routing(ingress, channel(0, 2, vc = 0), farFlow))
+    assert(!routing(ingress, channel(0, 15, vc = 0), farFlow))
+    assert(!routing(ingress, channel(0, 1, vc = 0), farFlow))
+    assert(routing(ingress, channel(0, 2, vc = 1), farFlow))
+    assert(routing(ingress, channel(0, 15, vc = 1), farFlow))
+    assert(routing(ingress, channel(0, 1, vc = 1), farFlow))
+    assert(routing(ingress, channel(0, 5, vc = 1), farFlow))
+    assert(routing.getPrio(ingress, channel(0, 2, vc = 1), farFlow) == 0)
+    assert(routing.getPrio(ingress, channel(0, 1, vc = 1), farFlow) == 1)
+    assert(routing.getPrio(ingress, channel(0, 2, vc = 0), farFlow) == 2)
+
+    assert(routing.isEscape(ingress, 0))
+    assert(routing.isEscape(channel(0, 2, vc = 0), 0))
+    assert(!routing.isEscape(channel(0, 2, vc = 1), 0))
+  }
+}
+
+class NoCTest83 extends NoCTest(Seq(new TestConfig83))
+class NoCTest84 extends NoCTest(Seq(new TestConfig84))
+class NoCTest85 extends NoCTest(Seq(new TestConfig85))
+class NoCTest86 extends NoCTest(Seq(new TestConfig86))
+class NoCTest87 extends NoCTest(Seq(new TestConfig87))
+
+class NoCTestTL12 extends TLNoCTest(Seq(new TLTestConfig12))
+class NoCTestTL13 extends TLNoCTest(Seq(new TLTestConfig13))
+class NoCTestTL14 extends TLNoCTest(Seq(new TLTestConfig14))
+
+class NoCTestAXI409 extends AXI4NoCTest(Seq(new AXI4TestConfig09))
+class NoCTestAXI410 extends AXI4NoCTest(Seq(new AXI4TestConfig10))
+class NoCTestAXI411 extends AXI4NoCTest(Seq(new AXI4TestConfig11))
+
+class NoCTestEval14 extends EvalNoCTest(Seq(new EvalTestConfig14))
+class NoCTestEval15 extends EvalNoCTest(Seq(new EvalTestConfig15))
+class NoCTestEval16 extends EvalNoCTest(Seq(new EvalTestConfig16))

@@ -75,6 +75,38 @@ object StructuredHardwareRouting {
     }
   }
 
+  def rucheMeshMinimal(topo: RucheMesh2D): HardwareRouting = {
+    val layout = NodeIdLayout(topo).asInstanceOf[GridNodeIdLayout]
+
+    def distance(a: UInt, b: UInt): UInt = Mux(a > b, a - b, b - a)
+    def dimHops(a: UInt, b: UInt, factor: Int): UInt = {
+      val d = distance(a, b)
+      if (factor <= 1) d else d / factor.U + d % factor.U
+    }
+    def hopDistance(x: UInt, y: UInt, destX: UInt, destY: UInt): UInt =
+      dimHops(x, destX, topo.xRucheFactor) +&
+        dimHops(y, destY, topo.yRucheFactor)
+    def toward(node: UInt, next: UInt, dest: UInt): Bool =
+      Mux(dest > node, next > node && next <= dest,
+        Mux(dest < node, next < node && next >= dest, false.B))
+
+    new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        val (nextX, nextY) = grid(next.dst, layout)
+        val (nodeX, nodeY) = grid(next.src, layout)
+        val (destX, destY) = grid(flow.egressNode, layout)
+
+        val routeX = nextY === nodeY && toward(nodeX, nextX, destX)
+        val routeY = nextX === nodeX && toward(nodeY, nextY, destY)
+        val remaining = hopDistance(nodeX, nodeY, destX, destY)
+        val nextRemaining = hopDistance(nextX, nextY, destX, destY)
+
+        (routeX || routeY) && remaining === nextRemaining +& 1.U
+      }
+    }
+  }
+
   def meshWestFirst(topo: Mesh2DLikePhysicalTopology, base: HardwareRouting): HardwareRouting = {
     val layout = NodeIdLayout(topo).asInstanceOf[GridNodeIdLayout]
     new HardwareRouting {

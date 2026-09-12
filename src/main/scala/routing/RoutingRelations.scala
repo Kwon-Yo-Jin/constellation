@@ -447,6 +447,60 @@ object Mesh2DMinimalRouting {
   }
 }
 
+/** Adaptive minimum-hop routing for a Ruche mesh.
+  *
+  * Every channel that reduces the remaining minimum hop count by one is legal.
+  * Ruche channels receive a higher allocator priority than local mesh channels.
+  */
+object RucheMesh2DMinimalRouting {
+  def apply() = (topo: PhysicalTopology) => topo match {
+    case topo: RucheMesh2D => new RoutingRelation(topo) {
+      private def dimHops(a: Int, b: Int, factor: Int): Int = {
+        val distance = (a - b).abs
+        if (factor <= 1) distance else distance / factor + distance % factor
+      }
+
+      private def hopDistance(x: Int, y: Int, destX: Int, destY: Int): Int =
+        dimHops(x, destX, topo.xRucheFactor) +
+          dimHops(y, destY, topo.yRucheFactor)
+
+      private def toward(node: Int, next: Int, dest: Int): Boolean =
+        if (dest > node) next > node && next <= dest
+        else if (dest < node) next < node && next >= dest
+        else false
+
+      private def isRuche(c: ChannelRoutingInfo): Boolean = if (c.isIngress || c.isEgress) {
+        false
+      } else {
+        val (srcX, srcY) = (c.src % topo.nX, c.src / topo.nX)
+        val (dstX, dstY) = (c.dst % topo.nX, c.dst / topo.nX)
+        (topo.xRucheFactor != 0 && srcY == dstY &&
+          (srcX - dstX).abs == topo.xRucheFactor) ||
+        (topo.yRucheFactor != 0 && srcX == dstX &&
+          (srcY - dstY).abs == topo.yRucheFactor)
+      }
+
+      def rel(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo) = {
+        val (nextX, nextY) = (nxtC.dst % topo.nX, nxtC.dst / topo.nX)
+        val (nodeX, nodeY) = (nxtC.src % topo.nX, nxtC.src / topo.nX)
+        val (destX, destY) = (flow.egressNode % topo.nX, flow.egressNode / topo.nX)
+
+        val routeX = nextY == nodeY && toward(nodeX, nextX, destX)
+        val routeY = nextX == nodeX && toward(nodeY, nextY, destY)
+        val remaining = hopDistance(nodeX, nodeY, destX, destY)
+        val nextRemaining = hopDistance(nextX, nextY, destX, destY)
+
+        (routeX || routeY) && nextRemaining == remaining - 1
+      }
+
+      override def getNPrios(c: ChannelRoutingInfo): Int = 2
+      override def getPrio(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo,
+        flow: FlowRoutingInfo): Int = if (isRuche(nxtC)) 0 else 1
+      override val hardwareRouting = Some(StructuredHardwareRouting.rucheMeshMinimal(topo))
+    }
+  }
+}
+
 object Mesh2DWestFirstRouting {
   def apply() = (topo: PhysicalTopology) => topo match {
     case topo: Mesh2DLikePhysicalTopology => new RoutingRelation(topo) {
@@ -496,6 +550,16 @@ object Mesh2DEscapeRouting {
       escapeRouter=Mesh2DDimensionOrderedRouting(),
       normalRouter=Mesh2DMinimalRouting())(topo)
   }
+}
+
+object RucheMesh2DEscapeRouting {
+  def apply(firstDim: Int = 0, nEscapeChannels: Int = 1) =
+    (topo: PhysicalTopology) => topo match {
+      case topo: RucheMesh2D => EscapeChannelRouting(
+        escapeRouter = RucheMesh2DDimensionOrderedRouting(firstDim),
+        normalRouter = RucheMesh2DMinimalRouting(),
+        nEscapeChannels = nEscapeChannels)(topo)
+    }
 }
 
 object UnidirectionalTorus2DDatelineRouting {

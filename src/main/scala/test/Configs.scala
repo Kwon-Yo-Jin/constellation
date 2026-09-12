@@ -1393,3 +1393,189 @@ class EvalTestConfig13 extends NoCEvalConfig(NoCEvalParams(
   flows = (s, d) => 0.05 / 12,
   requiredThroughput = 0.9
 ))
+
+class TestConfig83 extends NoCTesterConfig(NoCTesterParams(
+  NoCParams(
+    topology        = RucheMesh2D(3, 3, 1, 1),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 9).map { i => UserIngressParams(i) },
+    egresses        = (0 until 9).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(9, 9) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting()
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig84 extends NoCTesterConfig(NoCTesterParams(
+  NoCParams(
+    topology        = RucheMesh2D(4, 3, 2, 1),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 12).map { i => UserIngressParams(i) },
+    egresses        = (0 until 12).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(12, 12) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting(firstDim = 1)
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig85 extends NoCTesterConfig(NoCTesterParams(
+  NoCParams(
+    topology        = RucheMesh2D(5, 4, 2, 3),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 20).map { i => UserIngressParams(i) },
+    egresses        = (0 until 20).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(20, 20) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting()
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig86 extends NoCTesterConfig(NoCTesterParams(
+  NoCParams(
+    topology        = RucheMesh2D(5, 4, 4, 2),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 20).map { i => UserIngressParams(i) },
+    egresses        = (0 until 20).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(20, 20) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting(firstDim = 1)
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig87 extends NoCTesterConfig(NoCTesterParams(
+  NoCParams(
+    topology        = TerminalRouter(RucheMesh2D(4, 3, 3, 2)),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 12).map { i => UserIngressParams(i) },
+    egresses        = (0 until 12).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(12, 12) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = TerminalRouterRouting(RucheMesh2DEscapeRouting())
+  ),
+  totalTxs = 1000
+))
+
+class TLTestConfig12 extends TLNoCTesterConfig(TLNoCTesterParams(
+  inNodeMapping = Seq(0, 2, 4),
+  outNodeMapping = Seq(5, 7, 8),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(3, 3, 1, 1),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      RucheMesh2DEscapeRouting(), 5, 1)
+  )
+))
+
+class TLTestConfig13 extends TLNoCTesterConfig(TLNoCTesterParams(
+  inNodeMapping = Seq(0, 4, 7),
+  outNodeMapping = Seq(8, 10, 14),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(5, 3, 4, 2),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      RucheMesh2DEscapeRouting(firstDim = 1), 5, 1)
+  )
+))
+
+class TLTestConfig14 extends TLNoCTesterConfig(TLNoCTesterParams(
+  inNodeMapping = Seq(0, 3, 5),
+  outNodeMapping = Seq(6, 8, 11),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = TerminalRouter(RucheMesh2D(4, 3, 2, 1)),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      TerminalRouterRouting(RucheMesh2DEscapeRouting()), 5, 1)
+  )
+))
+
+class AXI4TestConfig09 extends AXI4NoCTesterConfig(AXI4NoCTesterParams(
+  inNodeMapping = Seq(0, 2, 4),
+  outNodeMapping = Seq(5, 7, 8),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(3, 3, 1, 1),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      RucheMesh2DEscapeRouting(), 5, 1)
+  )
+))
+
+class AXI4TestConfig10 extends AXI4NoCTesterConfig(AXI4NoCTesterParams(
+  inNodeMapping = Seq(0, 4, 7),
+  outNodeMapping = Seq(8, 10, 14),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(5, 3, 4, 2),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      RucheMesh2DEscapeRouting(firstDim = 1), 5, 1)
+  )
+))
+
+class AXI4TestConfig11 extends AXI4NoCTesterConfig(AXI4NoCTesterParams(
+  inNodeMapping = Seq(0, 3, 5),
+  outNodeMapping = Seq(6, 8, 11),
+  txns = 200,
+  nocParams = NoCParams(
+    topology        = TerminalRouter(RucheMesh2D(4, 3, 2, 1)),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(6) { UserVirtualChannelParams(4) }),
+    vNetBlocking    = (a, b) => true,
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      TerminalRouterRouting(RucheMesh2DEscapeRouting()), 5, 1)
+  )
+))
+
+class EvalTestConfig14 extends NoCEvalConfig(NoCEvalParams(
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(3, 3, 1, 1),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 9).map { i => UserIngressParams(i) },
+    egresses        = (0 until 9).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(9, 9) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting()
+  ),
+  warmupCycles = 200,
+  measurementCycles = 10000,
+  drainTimeoutCycles = 10000,
+  flows = (s, d) => 0.05 / 9,
+  requiredThroughput = 0.9
+))
+
+class EvalTestConfig15 extends NoCEvalConfig(NoCEvalParams(
+  nocParams = NoCParams(
+    topology        = RucheMesh2D(5, 3, 4, 2),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 15).map { i => UserIngressParams(i) },
+    egresses        = (0 until 15).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(15, 15) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = RucheMesh2DEscapeRouting(firstDim = 1)
+  ),
+  warmupCycles = 200,
+  measurementCycles = 10000,
+  drainTimeoutCycles = 10000,
+  flows = (s, d) => 0.05 / 15,
+  requiredThroughput = 0.9
+))
+
+class EvalTestConfig16 extends NoCEvalConfig(NoCEvalParams(
+  nocParams = NoCParams(
+    topology        = TerminalRouter(RucheMesh2D(4, 3, 2, 1)),
+    channelParamGen = (a, b) => UserChannelParams(Seq.fill(2) { UserVirtualChannelParams(4) }),
+    ingresses       = (0 until 12).map { i => UserIngressParams(i) },
+    egresses        = (0 until 12).map { i => UserEgressParams(i) },
+    flows           = Seq.tabulate(12, 12) { (s, d) => FlowParams(s, d, 0) }.flatten,
+    routingRelation = TerminalRouterRouting(RucheMesh2DEscapeRouting())
+  ),
+  warmupCycles = 200,
+  measurementCycles = 10000,
+  drainTimeoutCycles = 10000,
+  flows = (s, d) => 0.05 / 12,
+  requiredThroughput = 0.9
+))
