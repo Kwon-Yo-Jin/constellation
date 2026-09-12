@@ -5,7 +5,7 @@ import chisel3.util._
 
 import constellation.topology.{
   GridNodeIdLayout, HierarchicalNodeIdLayout, NodeIdLayout,
-  HierarchicalTopology, Mesh2DLikePhysicalTopology, TerminalNodeIdLayout,
+  HierarchicalTopology, Mesh2DLikePhysicalTopology, RucheMesh2D, TerminalNodeIdLayout,
   TerminalRouter}
 import HardwareNodeId._
 
@@ -21,6 +21,37 @@ object StructuredHardwareRouting {
         val (destX, destY) = grid(flow.egressNode, layout)
         val routeX = Mux(nodeX < nextX, destX >= nextX, destX <= nextX) && nextY === nodeY
         val routeY = Mux(nodeY < nextY, destY >= nextY, destY <= nextY) && nextX === nodeX
+        if (firstDim == 0) Mux(destX =/= nodeX, routeX, routeY)
+        else Mux(destY =/= nodeY, routeY, routeX)
+      }
+    }
+  }
+
+  def rucheMeshDimensionOrdered(topo: RucheMesh2D, firstDim: Int): HardwareRouting = {
+    require(firstDim == 0 || firstDim == 1)
+    val layout = NodeIdLayout(topo).asInstanceOf[GridNodeIdLayout]
+
+    def preferredNext(node: UInt, next: UInt, dest: UInt, factor: Int): Bool = {
+      val distance = Mux(dest > node, dest - node, node - dest)
+      val step = if (factor == 0) {
+        1.U
+      } else {
+        Mux(distance >= factor.U, factor.U, 1.U)
+      }
+      next === Mux(dest > node, node + step, node - step)
+    }
+
+    new HardwareRouting {
+      def apply(source: HardwareRoutingChannel, next: HardwareRoutingChannel,
+        flow: HardwareRoutingFlow): Bool = {
+        val (nextX, nextY) = grid(next.dst, layout)
+        val (nodeX, nodeY) = grid(next.src, layout)
+        val (destX, destY) = grid(flow.egressNode, layout)
+        val routeX = nextY === nodeY &&
+          preferredNext(nodeX, nextX, destX, topo.xRucheFactor)
+        val routeY = nextX === nodeX &&
+          preferredNext(nodeY, nextY, destY, topo.yRucheFactor)
+
         if (firstDim == 0) Mux(destX =/= nodeX, routeX, routeY)
         else Mux(destY =/= nodeY, routeY, routeX)
       }

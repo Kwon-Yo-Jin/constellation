@@ -170,7 +170,7 @@ def update(num):
         edge_indices[t] += 1
     ax.set_aspect("equal", adjustable="datalim")
     ax.margins(0.08)
-    ax.set_title("{} to {}".format(prev_tsc, tsc))
+    # ax.set_title("{} to {}".format(prev_tsc, tsc))
 
 update(0)
 
@@ -178,6 +178,13 @@ output_path = "./noc-topology.svg"
 fig.savefig(
     output_path,
     format="svg",
+    bbox_inches="tight"
+)
+print(f"Saved NoC visualization to {output_path}")
+output_path = "./noc-topology.png"
+fig.savefig(
+    output_path,
+    format="png",
     bbox_inches="tight"
 )
 print(f"Saved NoC visualization to {output_path}")

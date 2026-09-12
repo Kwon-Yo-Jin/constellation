@@ -17,6 +17,10 @@ trait PhysicalTopology {
     */
   def topo(src: Int, dst: Int): Boolean
 
+  /** Number of parallel directed physical channels from SRC to DST. */
+  def channelMultiplicity(src: Int, dst: Int): Int =
+    if (topo(src, dst)) 1 else 0
+
   /** Plotter from TopologyPlotters.scala.
     * Helps construct diagram of a concrete topology. */
   val plotter: PhysicalTopologyPlotter
@@ -127,6 +131,47 @@ case class Mesh2D(nX: Int, nY: Int) extends Mesh2DLikePhysicalTopology {
   }
 }
 
+/** A 2D mesh augmented with bidirectional, long-range Ruche channels.
+  *
+  * A factor of zero disables Ruche channels in that dimension. A factor of
+  * one adds a second physical channel parallel to each local mesh channel in
+  * that dimension.
+  */
+case class RucheMesh2D(
+  nX: Int,
+  nY: Int,
+  xRucheFactor: Int,
+  yRucheFactor: Int
+) extends Mesh2DLikePhysicalTopology {
+  private def validFactor(factor: Int, dimension: Int): Boolean =
+    factor == 0 || (factor >= 1 && factor < dimension)
+
+  require(nX > 0 && nY > 0)
+  require(validFactor(xRucheFactor, nX),
+    s"x Ruche factor $xRucheFactor must be zero or in [1, $nX)")
+  require(validFactor(yRucheFactor, nY),
+    s"y Ruche factor $yRucheFactor must be zero or in [1, $nY)")
+
+  override def channelMultiplicity(src: Int, dst: Int): Int = {
+    val (srcX, srcY) = (src % nX, src / nX)
+    val (dstX, dstY) = (dst % nX, dst / nX)
+    val dx = (srcX - dstX).abs
+    val dy = (srcY - dstY).abs
+    val local = if ((srcX == dstX && dy == 1) || (srcY == dstY && dx == 1)) 1 else 0
+    val rucheX = if (xRucheFactor != 0 && srcY == dstY && dx == xRucheFactor) 1 else 0
+    val rucheY = if (yRucheFactor != 0 && srcX == dstX && dy == yRucheFactor) 1 else 0
+    local + rucheX + rucheY
+  }
+
+  def topo(src: Int, dst: Int): Boolean = channelMultiplicity(src, dst) > 0
+}
+
+object RucheMesh2D {
+  /** Construct a full Ruche mesh with the same factor in both dimensions. */
+  def apply(nX: Int, nY: Int, rucheFactor: Int): RucheMesh2D =
+    new RucheMesh2D(nX, nY, rucheFactor, rucheFactor)
+}
+
 /** A 2D unidirectional torus network with nX * nY nodes.
  *
  *  @param nX maximum x-coordinate of a node
@@ -170,6 +215,15 @@ case class TerminalRouter(val base: PhysicalTopology) extends PhysicalTopology {
       same && (toIngress || toEgress)
     }
   }
+
+  override def channelMultiplicity(src: Int, dst: Int): Int = {
+    if (isBase(src) && isBase(dst)) {
+      base.channelMultiplicity(src - base.nNodes, dst - base.nNodes)
+    } else {
+      if (topo(src, dst)) 1 else 0
+    }
+  }
+
   val plotter = new TerminalRouterPlotter(this)
 }
 

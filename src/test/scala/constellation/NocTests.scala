@@ -57,7 +57,8 @@ abstract class BaseNoCTest(
 abstract class NoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new NoCChiselTester()(p), configs)
 abstract class TLNoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new TLNoCChiselTester()(p), configs)
 abstract class AXI4NoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new AXI4NoCChiselTester()(p), configs)
-abstract class EvalNoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new EvalNoCChiselTester()(p), configs, Seq("../../../constellation/src/main/resources/csrc/netrace/netrace.o"))
+abstract class EvalNoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new EvalNoCChiselTester()(p), configs, Seq("../../../src/main/resources/csrc/netrace/netrace.o"))
+// abstract class EvalNoCTest(configs: Seq[Config]) extends BaseNoCTest(p => new EvalNoCChiselTester()(p), configs, Seq("../../../constellation/src/main/resources/csrc/netrace/netrace.o"))
 
 
 // these tests allow you to run an infividual config
@@ -134,6 +135,50 @@ class NoCTest69 extends NoCTest(Seq(new TestConfig69))
 class NoCTest70 extends NoCTest(Seq(new TestConfig70))
 class NoCTest71 extends NoCTest(Seq(new TestConfig71))
 class NoCTest72 extends NoCTest(Seq(new TestConfig72))
+class NoCTest73 extends NoCTest(Seq(new TestConfig73))
+
+class RucheRoutingPolicyTest extends AnyFlatSpec {
+  behavior of "RucheMesh2DDimensionOrderedRouting"
+
+  it should "prefer a fitting Ruche skip and use local links only for the remainder" in {
+    val topo = constellation.topology.RucheMesh2D(
+      nX = 4, nY = 4, xRucheFactor = 3, yRucheFactor = 2)
+    val routing = constellation.routing.RucheMesh2DDimensionOrderedRouting()(topo)
+    val flow = constellation.routing.FlowRoutingInfo(
+      ingressId = 0,
+      egressId = 15,
+      vNetId = 0,
+      ingressNode = 0,
+      ingressNodeId = 0,
+      egressNode = 15,
+      egressNodeId = 0,
+      fifo = true)
+    def channel(src: Int, dst: Int) =
+      constellation.routing.ChannelRoutingInfo(src, dst, vc = 0, n_vc = 1)
+
+    assert(topo.topo(0, 1))
+    assert(topo.topo(0, 3))
+    assert(topo.topo(0, 8))
+    assert(!topo.topo(0, 2))
+
+    val mesh = constellation.topology.Mesh2D(4, 4)
+    val unitRuche = constellation.topology.RucheMesh2D(4, 4, rucheFactor = 1)
+    def physicalChannels(t: constellation.topology.PhysicalTopology) =
+      (0 until t.nNodes).flatMap(src =>
+        (0 until t.nNodes).map(dst => t.channelMultiplicity(src, dst))).sum
+    assert(unitRuche.channelMultiplicity(0, 1) == 2)
+    assert(unitRuche.channelMultiplicity(0, 4) == 2)
+    assert(unitRuche.channelMultiplicity(0, 5) == 0)
+    assert(physicalChannels(unitRuche) == 2 * physicalChannels(mesh))
+
+    val ingress = channel(-1, 0)
+    assert(routing(ingress, channel(0, 3), flow))
+    assert(!routing(ingress, channel(0, 1), flow))
+    assert(routing(channel(0, 3), channel(3, 11), flow))
+    assert(!routing(channel(0, 3), channel(3, 7), flow))
+    assert(routing(channel(3, 11), channel(11, 15), flow))
+  }
+}
 
 class NoCTestTL00 extends TLNoCTest(Seq(new TLTestConfig00))
 class NoCTestTL01 extends TLNoCTest(Seq(new TLTestConfig01))
@@ -157,3 +202,30 @@ class NoCTestEval05 extends EvalNoCTest(Seq(new EvalTestConfig05))
 class NoCTestEval06 extends EvalNoCTest(Seq(new EvalTestConfig06))
 class NoCTestEval07 extends EvalNoCTest(Seq(new EvalTestConfig07))
 class NoCTestEval08 extends EvalNoCTest(Seq(new EvalTestConfig08))
+class NoCTest74 extends NoCTest(Seq(new TestConfig74))
+class NoCTest75 extends NoCTest(Seq(new TestConfig75))
+class NoCTest76 extends NoCTest(Seq(new TestConfig76))
+class NoCTest77 extends NoCTest(Seq(new TestConfig77))
+class NoCTest78 extends NoCTest(Seq(new TestConfig78))
+class NoCTest79 extends NoCTest(Seq(new TestConfig79))
+class NoCTest80 extends NoCTest(Seq(new TestConfig80))
+class NoCTest81 extends NoCTest(Seq(new TestConfig81))
+class NoCTest82 extends NoCTest(Seq(new TestConfig82))
+
+class NoCTestTL07 extends TLNoCTest(Seq(new TLTestConfig07))
+class NoCTestTL08 extends TLNoCTest(Seq(new TLTestConfig08))
+class NoCTestTL09 extends TLNoCTest(Seq(new TLTestConfig09))
+class NoCTestTL10 extends TLNoCTest(Seq(new TLTestConfig10))
+class NoCTestTL11 extends TLNoCTest(Seq(new TLTestConfig11))
+
+class NoCTestAXI404 extends AXI4NoCTest(Seq(new AXI4TestConfig04))
+class NoCTestAXI405 extends AXI4NoCTest(Seq(new AXI4TestConfig05))
+class NoCTestAXI406 extends AXI4NoCTest(Seq(new AXI4TestConfig06))
+class NoCTestAXI407 extends AXI4NoCTest(Seq(new AXI4TestConfig07))
+class NoCTestAXI408 extends AXI4NoCTest(Seq(new AXI4TestConfig08))
+
+class NoCTestEval09 extends EvalNoCTest(Seq(new EvalTestConfig09))
+class NoCTestEval10 extends EvalNoCTest(Seq(new EvalTestConfig10))
+class NoCTestEval11 extends EvalNoCTest(Seq(new EvalTestConfig11))
+class NoCTestEval12 extends EvalNoCTest(Seq(new EvalTestConfig12))
+class NoCTestEval13 extends EvalNoCTest(Seq(new EvalTestConfig13))

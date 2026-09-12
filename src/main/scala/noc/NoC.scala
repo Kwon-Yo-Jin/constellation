@@ -81,10 +81,10 @@ class NoC(nocParams: NoCParams)(implicit p: Parameters) extends LazyModule {
     * and custom topologies use their own maximum directed degree.
     */
   private val maxNetworkInputs = (0 until nNodes).map { dst =>
-    (0 until nNodes).count(src => src != dst && nocParams.topology.topo(src, dst))
+    (0 until nNodes).filter(_ != dst).map(src => nocParams.topology.channelMultiplicity(src, dst)).sum
   }.max
   private val maxNetworkOutputs = (0 until nNodes).map { src =>
-    (0 until nNodes).count(dst => src != dst && nocParams.topology.topo(src, dst))
+    (0 until nNodes).filter(_ != src).map(dst => nocParams.topology.channelMultiplicity(src, dst)).sum
   }.max
   private val maxTerminalInputs = actualRouterContexts.map(_.ingressParams.size).max
   private val maxTerminalOutputs = actualRouterContexts.map(_.egressParams.size).max

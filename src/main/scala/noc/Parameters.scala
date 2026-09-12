@@ -84,17 +84,15 @@ object InternalNoCParams {
     val skipValidationChecks = nocParams.skipValidationChecks
 
     val channelParams = Seq.tabulate(nNodes, nNodes) { case (i,j) =>
-      if (nocParams.topology.topo(i, j)) {
+      Seq.fill(nocParams.topology.channelMultiplicity(i, j)) {
         val cP = nocParams.channelParamGen(i, j)
         val payloadBits = nocParams.routerParams(j).payloadBits
-        Some(ChannelParams(
+        ChannelParams(
           srcId = i,
           destId = j,
           payloadBits = payloadBits,
           user = cP,
-        ))
-      } else {
-        None
+        )
       }
     }.flatten.flatten
 

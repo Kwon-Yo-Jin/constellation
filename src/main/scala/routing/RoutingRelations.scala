@@ -5,7 +5,7 @@ import scala.collection.mutable.HashMap
 import chisel3._
 import org.chipsalliance.cde.config.{Parameters}
 import scala.collection.immutable.ListMap
-import constellation.topology.{PhysicalTopology, Mesh2DLikePhysicalTopology, HierarchicalTopology, CustomTopology}
+import constellation.topology.{PhysicalTopology, Mesh2DLikePhysicalTopology, RucheMesh2D, HierarchicalTopology, CustomTopology}
 
 import scala.collection.mutable
 
@@ -380,6 +380,51 @@ object Mesh2DDimensionOrderedRouting {
         }
       }
       override val hardwareRouting = Some(StructuredHardwareRouting.meshDimensionOrdered(topo, firstDim))
+    }
+  }
+}
+
+/** Dimension-ordered routing for a Ruche mesh.
+  *
+  * A Ruche channel is selected whenever it advances the packet in the active
+  * dimension without overshooting its destination. The local mesh is used
+  * only for the remaining distance, making the Ruche skip independent of the
+  * allocator's output-selection policy.
+  */
+object RucheMesh2DDimensionOrderedRouting {
+  def apply(firstDim: Int = 0) = (topo: PhysicalTopology) => topo match {
+    case topo: RucheMesh2D => new RoutingRelation(topo) {
+      require(firstDim == 0 || firstDim == 1)
+
+      private def preferredNext(node: Int, next: Int, dest: Int, factor: Int): Boolean = {
+        if (node == dest) {
+          false
+        } else {
+          val distance = (dest - node).abs
+          val step = if (factor != 0 && distance >= factor) factor else 1
+          next == node + (if (dest > node) step else -step)
+        }
+      }
+
+      def rel(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo) = {
+        val (nextX, nextY) = (nxtC.dst % topo.nX, nxtC.dst / topo.nX)
+        val (nodeX, nodeY) = (nxtC.src % topo.nX, nxtC.src / topo.nX)
+        val (destX, destY) = (flow.egressNode % topo.nX, flow.egressNode / topo.nX)
+
+        val routeX = nextY == nodeY &&
+          preferredNext(nodeX, nextX, destX, topo.xRucheFactor)
+        val routeY = nextX == nodeX &&
+          preferredNext(nodeY, nextY, destY, topo.yRucheFactor)
+
+        if (firstDim == 0) {
+          if (destX != nodeX) routeX else routeY
+        } else {
+          if (destY != nodeY) routeY else routeX
+        }
+      }
+
+      override val hardwareRouting =
+        Some(StructuredHardwareRouting.rucheMeshDimensionOrdered(topo, firstDim))
     }
   }
 }
