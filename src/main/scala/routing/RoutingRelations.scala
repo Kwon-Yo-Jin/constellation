@@ -447,23 +447,14 @@ object Mesh2DMinimalRouting {
   }
 }
 
-/** Adaptive minimum-hop routing for a Ruche mesh.
+/** Adaptive minimal routing for a Ruche mesh.
   *
-  * Every channel that reduces the remaining minimum hop count by one is legal.
-  * Ruche channels receive a higher allocator priority than local mesh channels.
+  * Every local or Ruche channel that moves toward the destination without
+  * overshooting is legal. Ruche channels receive a higher allocator priority.
   */
 object RucheMesh2DMinimalRouting {
   def apply() = (topo: PhysicalTopology) => topo match {
     case topo: RucheMesh2D => new RoutingRelation(topo) {
-      private def dimHops(a: Int, b: Int, factor: Int): Int = {
-        val distance = (a - b).abs
-        if (factor <= 1) distance else distance / factor + distance % factor
-      }
-
-      private def hopDistance(x: Int, y: Int, destX: Int, destY: Int): Int =
-        dimHops(x, destX, topo.xRucheFactor) +
-          dimHops(y, destY, topo.yRucheFactor)
-
       private def toward(node: Int, next: Int, dest: Int): Boolean =
         if (dest > node) next > node && next <= dest
         else if (dest < node) next < node && next >= dest
@@ -487,10 +478,8 @@ object RucheMesh2DMinimalRouting {
 
         val routeX = nextY == nodeY && toward(nodeX, nextX, destX)
         val routeY = nextX == nodeX && toward(nodeY, nextY, destY)
-        val remaining = hopDistance(nodeX, nodeY, destX, destY)
-        val nextRemaining = hopDistance(nextX, nextY, destX, destY)
 
-        (routeX || routeY) && nextRemaining == remaining - 1
+        routeX || routeY
       }
 
       override def getNPrios(c: ChannelRoutingInfo): Int = 2

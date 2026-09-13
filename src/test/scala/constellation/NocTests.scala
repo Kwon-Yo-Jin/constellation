@@ -246,7 +246,7 @@ class RucheMinimalRoutingPolicyTest extends AnyFlatSpec {
     egressNodeId = 0,
     fifo = true)
 
-  it should "allow every minimum-hop channel and prioritize Ruche skips" in {
+  it should "allow every non-overshooting channel and prioritize Ruche skips" in {
     val topo = constellation.topology.RucheMesh2D(
       nX = 5, nY = 5, xRucheFactor = 2, yRucheFactor = 3)
     val routing = constellation.routing.RucheMesh2DMinimalRouting()(topo)
@@ -262,7 +262,7 @@ class RucheMinimalRoutingPolicyTest extends AnyFlatSpec {
     assert(routing.getPrio(ingress, channel(0, 1), farFlow) == 1)
 
     val exactMultipleFlow = flow(24)
-    assert(!routing(ingress, channel(0, 1), exactMultipleFlow))
+    assert(routing(ingress, channel(0, 1), exactMultipleFlow))
     assert(routing(ingress, channel(0, 5), exactMultipleFlow))
 
     val nearFlow = flow(6)
@@ -274,6 +274,10 @@ class RucheMinimalRoutingPolicyTest extends AnyFlatSpec {
     assert(socRouting(channel(-1, 0), channel(0, 1), flow(33)))
     assert(socRouting(channel(30, 18), channel(18, 12), flow(0)))
     assert(socRouting(channel(18, 12), channel(12, 0), flow(0)))
+    assert(socRouting(channel(-1, 6), channel(6, 12), flow(33)))
+    assert(socRouting(channel(24, 12), channel(12, 6), flow(6)))
+    assert(socRouting(channel(-1, 18), channel(18, 24), flow(33)))
+    assert(socRouting(channel(30, 24), channel(24, 18), flow(18)))
   }
 
   it should "use dimension-ordered Ruche routing only on escape channels" in {
