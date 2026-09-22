@@ -57,6 +57,8 @@ public:
   std::vector<flow_rate_t> flow_rates;
   /* Static number of flits per packet. */
   uint64_t flits_per_packet;
+  /* Width of each printed latency histogram bucket. */
+  uint64_t latency_histogram_step;
 
   float required_throughput;
   uint64_t required_median_latency;

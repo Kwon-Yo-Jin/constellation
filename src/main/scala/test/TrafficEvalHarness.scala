@@ -75,6 +75,7 @@ case class NoCEvalParams(
   measurementCycles: Int = 20000,
   drainTimeoutCycles: Int = 100000,
   flitsPerPacket: Int = 4,
+  latencyHistogramStep: Int = 10,
   flows: (Int, Int) => Double = (a: Int, b: Int) => 0.0,
   requiredThroughput: Double = 0.0,
   requiredMedianLatency: Int = 99999,
@@ -84,11 +85,14 @@ case class NoCEvalParams(
   netraceTrace: String = "blackscholes_64c_simsmall.tra.bz2",
   netraceIgnoreDependencies: Boolean = false
 ) {
+  require(latencyHistogramStep > 0, "latencyHistogramStep must be positive")
+
   def toConfigStr = s"""# Default generated trafficeval config
 warmup                  $warmupCycles
 measurement             $measurementCycles
 drain                   $drainTimeoutCycles
 flits_per_packet        $flitsPerPacket
+latency_histogram_step  $latencyHistogramStep
 required_throughput     $requiredThroughput
 required_median_latency $requiredMedianLatency
 required_max_latency    $requiredMaxLatency

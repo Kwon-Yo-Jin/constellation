@@ -756,7 +756,7 @@ object NonblockingVirtualSubnetworksRouting {
     }
     def lower(c: ChannelRoutingInfo) = c.copy(
       vc = trueVIdToVirtualVId(c.vc),
-      n_vc = if (c.isIngress) 1 else c.n_vc - n * nDedicatedChannels + nDedicatedChannels
+      n_vc = if (c.isIngress || c.isEgress) 1 else c.n_vc - n * nDedicatedChannels + nDedicatedChannels
     )
     val base = f(topo)
     def rel(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo) = {
@@ -765,6 +765,12 @@ object NonblockingVirtualSubnetworksRouting {
     }
     override def isEscape(c: ChannelRoutingInfo, v: Int) = {
       base.isEscape(lower(c), 0)
+    }
+    override def getNPrios(c: ChannelRoutingInfo): Int = {
+      base.getNPrios(lower(c))
+    }
+    override def getPrio(srcC: ChannelRoutingInfo, nxtC: ChannelRoutingInfo, flow: FlowRoutingInfo): Int = {
+      base.getPrio(lower(srcC), lower(nxtC), flow.copy(vNetId=0))
     }
     override val hardwareRouting = base.hardwareRouting.map(
       StructuredHardwareRouting.nonblockingVirtualSubnetworks(_, n, nDedicatedChannels))

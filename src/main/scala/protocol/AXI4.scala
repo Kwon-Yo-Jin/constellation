@@ -247,7 +247,8 @@ class AXI4SlaveToNoC(
   })
 
   out_w_in_head := io.flits.w.bits.head
-  out_w_in_id := UIntToOH(io.flits.w.bits.payload.asUInt >> out.w.bits.getWidth)
+  val out_w_id = (io.flits.w.bits.payload.asUInt >> out.w.bits.getWidth)(wideBundle.idBits - 1, 0)
+  out_w_in_id := UIntToOH(out_w_id)
 
   out.aw.valid := io.flits.aw.valid
   io.flits.aw.ready := out.aw.ready

@@ -302,6 +302,24 @@ class RucheMinimalRoutingPolicyTest extends AnyFlatSpec {
     assert(routing.isEscape(channel(0, 2, vc = 0), 0))
     assert(!routing.isEscape(channel(0, 2, vc = 1), 0))
   }
+
+  it should "preserve Ruche priorities through nonblocking virtual subnetworks" in {
+    val topo = constellation.topology.RucheMesh2D(
+      nX = 5, nY = 5, xRucheFactor = 2, yRucheFactor = 3)
+    val routing = constellation.routing.NonblockingVirtualSubnetworksRouting(
+      constellation.routing.RucheMesh2DEscapeRouting(), n = 5, nDedicatedChannels = 1)(topo)
+    val farFlow = flow(23).copy(vNetId = 3)
+    val ingress = constellation.routing.ChannelRoutingInfo(-1, 0, vc = 0, n_vc = 1)
+    val egress = constellation.routing.ChannelRoutingInfo(23, -1, vc = 0, n_vc = 1)
+    def physicalChannel(dst: Int, vc: Int) =
+      constellation.routing.ChannelRoutingInfo(0, dst, vc = vc, n_vc = 9)
+
+    assert(routing.getNPrios(ingress) == 3)
+    assert(routing.getNPrios(egress) == 3)
+    assert(routing.getPrio(ingress, physicalChannel(2, vc = 5), farFlow) == 0)
+    assert(routing.getPrio(ingress, physicalChannel(1, vc = 5), farFlow) == 1)
+    assert(routing.getPrio(ingress, physicalChannel(2, vc = 3), farFlow) == 2)
+  }
 }
 
 class NoCTest83 extends NoCTest(Seq(new TestConfig83))

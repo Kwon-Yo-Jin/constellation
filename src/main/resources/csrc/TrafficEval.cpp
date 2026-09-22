@@ -175,8 +175,8 @@ extern "C" void egress_tick(long long int egress_id,
 		<< max_latency
 		<< std::endl
 		<< "Latency hist: ";
-      size_t bucket_size = 10;
-      for (uint64_t i = 0; i < max_latency; i += bucket_size) {
+      const uint64_t bucket_size = params->latency_histogram_step;
+      for (uint64_t i = 0; i <= max_latency; i += bucket_size) {
 	uint64_t c = 0;
 	for (uint64_t j = i; j < i + bucket_size; j++) {
 	  c += eval->get_overall_latency_count(j);
@@ -228,6 +228,7 @@ runtime_params_t::runtime_params_t(std::vector<std::string> args) {
   this->flits_per_packet = 4;
   this->num_ingresses = 0;
   this->num_egresses = 0;
+  this->latency_histogram_step = 10;
   this->required_throughput = 0.0f;
   this->required_median_latency = 99999;
   this->required_max_latency = 99999;
@@ -256,6 +257,10 @@ runtime_params_t::runtime_params_t(std::vector<std::string> args) {
     } else if (flag == "flits_per_packet") {
       assert(argv.size() == 2);
       this->flits_per_packet = stoi(argv[1]);
+    } else if (flag == "latency_histogram_step") {
+      assert(argv.size() == 2);
+      this->latency_histogram_step = stoull(argv[1]);
+      assert(this->latency_histogram_step > 0);
     } else if (flag == "required_throughput") {
       assert(argv.size() == 2);
       this->required_throughput = stof(argv[1]);
