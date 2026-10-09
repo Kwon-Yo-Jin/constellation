@@ -1,6 +1,7 @@
 package constellation.router
 
 import chisel3._
+import chisel3.naming.HasCustomIdentifier
 import chisel3.util._
 
 import org.chipsalliance.cde.config.{Field, Parameters}
@@ -32,7 +33,15 @@ case class VCAllocatorParams(
   inParams: Seq[ChannelParams],
   outParams: Seq[ChannelParams],
   ingressParams: Seq[IngressChannelParams],
-  egressParams: Seq[EgressChannelParams])
+  egressParams: Seq[EgressChannelParams]) extends HasCustomIdentifier {
+  // Chisel's default naming expands every routing-context flow via toString.
+  // Naming needs only a short proposal; Chisel uniquifies module identifiers.
+  override val customDefinitionIdentifierProposal: String =
+    s"VCAllocatorParams_${routingContexts.size}_" +
+      s"${inParams.map(_.nVirtualChannels).mkString("_")}_" +
+      s"${outParams.map(_.nVirtualChannels).mkString("_")}_" +
+      s"${ingressParams.size}_${egressParams.size}"
+}
 
 abstract class VCAllocator(val vP: VCAllocatorParams)(implicit val p: Parameters) extends Module
     with HasRouterInputParams

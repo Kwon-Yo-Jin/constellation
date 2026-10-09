@@ -1579,3 +1579,92 @@ class EvalTestConfig16 extends NoCEvalConfig(NoCEvalParams(
   flows = (s, d) => 0.05 / 12,
   requiredThroughput = 0.9
 ))
+
+class TestConfig88 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = UnidirectionalRucheTorus2D(4, 3, 2, 2),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(2)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 12).map(UserIngressParams(_)),
+    egresses = (0 until 12).map(UserEgressParams(_)),
+    flows = Seq.tabulate(12, 12)((s, d) => FlowParams(s, d, 0, fifo = true)).flatten,
+    routingRelation = DimensionOrderedUnidirectionalRucheTorus2DDatelineRouting()
+  ),
+  totalTxs = 2000
+))
+
+class TestConfig89 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = BidirectionalRucheTorus2D(5, 4, 2, 2),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(2)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 20).map(UserIngressParams(_)),
+    egresses = (0 until 20).map(UserEgressParams(_)),
+    flows = Seq.tabulate(20, 20)((s, d) => FlowParams(s, d, 0, fifo = true)).flatten,
+    routingRelation = DimensionOrderedBidirectionalRucheTorus2DDatelineRouting()
+  ),
+  totalTxs = 2000
+))
+
+// FIFO ordering is tested without factor-one parallel links: InputUnit tracks
+// FIFO dependencies per physical input port, not across parallel ports.
+class TestConfig90 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = MultiRucheMesh2D(5, 3, 2, 2, 0, 4, 2),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(1)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 15).map(UserIngressParams(_)),
+    egresses = (0 until 15).map(UserEgressParams(_)),
+    flows = Seq.tabulate(15, 15)((s, d) => FlowParams(s, d, 0, fifo = true)).flatten,
+    routingRelation = MultiRucheMesh2DDimensionOrderedRouting(firstDim = 1)
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig91 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = MultiRucheMesh2D(5, 4, 3, 1, 1, 2, 2, 4, 3),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(2)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 20).map(UserIngressParams(_)),
+    egresses = (0 until 20).map(UserEgressParams(_)),
+    flows = Seq.tabulate(20, 20)((s, d) => FlowParams(s, d, 0)).flatten,
+    routingRelation = MultiRucheMesh2DEscapeRouting()
+  ),
+  totalTxs = 1000
+))
+
+class TestConfig92 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = TerminalRouter(MultiRucheMesh2D(3, 3, 2, 1, 1, 2, 2)),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(3)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 18).map(i => UserIngressParams(i % 9)),
+    egresses = (0 until 18).map(i => UserEgressParams(i % 9)),
+    flows = (0 until 2).flatMap(v =>
+      Seq.tabulate(9, 9)((s, d) => FlowParams(v * 9 + s, v * 9 + d, v)).flatten),
+    routingRelation = NonblockingVirtualSubnetworksRouting(
+      TerminalRouterRouting(MultiRucheMesh2DEscapeRouting(firstDim = 1)), 2, 1)
+  ),
+  totalTxs = 1000
+))
+
+// Minimal routing alone is safe here because the singleton Y axis prevents turn cycles.
+class TestConfig93 extends NoCTesterConfig(NoCTesterParams(
+  nocParams = NoCParams(
+    topology = MultiRucheMesh2D(6, 1, 2, 2, 0, 4, 0),
+    channelParamGen = (_, _) => UserChannelParams(Seq.fill(1)(UserVirtualChannelParams(4))),
+    routerParams = _ => UserRouterParams(
+      vcAllocator = vP => p => new PrioritizingSingleVCAllocator(vP)(p)),
+    ingresses = (0 until 6).map(UserIngressParams(_)),
+    egresses = (0 until 6).map(UserEgressParams(_)),
+    flows = Seq.tabulate(6, 6)((s, d) => FlowParams(s, d, 0)).flatten,
+    routingRelation = MultiRucheMesh2DMinimalRouting()
+  ),
+  totalTxs = 1000
+))

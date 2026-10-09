@@ -213,6 +213,13 @@ fig.savefig(
     bbox_inches="tight"
 )
 print(f"Saved NoC visualization to {output_path}")
+output_path = "./noc-topology.pdf"
+fig.savefig(
+    output_path,
+    format="pdf",
+    bbox_inches="tight"
+)
+print(f"Saved NoC visualization to {output_path}")
 
 if args.animate:
     ani = matplotlib.animation.FuncAnimation(fig, update, frames=int(len(sorted_tscs)/multiplier) - 1, interval=30, repeat=True)

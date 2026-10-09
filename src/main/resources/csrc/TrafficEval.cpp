@@ -142,10 +142,15 @@ extern "C" void egress_tick(long long int egress_id,
       std::cout << "ingress_id, egress_id, received, sent, throughput, median_latency, max_latency" << std::endl;
       std::map<uint64_t,uint64_t> aggregate_latency;
       for (flow_rate_t& flow : params->flow_rates) {
+	// Zero-rate random flows still define terminal IDs, but have no samples
+	// to report. Netrace traffic does not use the configured random rates.
+	if (!params->netrace_enable && flow.rate == 0.0f) {
+	  continue;
+	}
 	uint64_t received = eval->get_flits_received(flow);
 	uint64_t sent = eval->get_flits_sent(flow);
-	float throughput = (float)received / (float)sent;
-	if (throughput < min_throughput || !min_flow) {
+	float throughput = sent > 0 ? (float)received / (float)sent : 0.0f;
+	if (sent > 0 && (throughput < min_throughput || !min_flow)) {
 	  min_throughput = throughput;
 	  min_flow = &flow;
 	}
@@ -155,20 +160,21 @@ extern "C" void egress_tick(long long int egress_id,
 		  << flow.egress_id << ", "
 		  << received << ", "
 		  << sent << ", "
-		  << std::to_string(throughput) << ", "
+			  << (sent > 0 ? std::to_string(throughput) : "N/A") << ", "
 		  << median_latency << ", "
 		  << max_latency
 		  << std::endl;
       }
       uint64_t max_latency = eval->get_overall_max_latency();
       uint64_t median_latency = eval->get_overall_median_latency();
-      std::cout << std::endl
-		<< "Min throughput: "
-		<< min_flow->ingress_id << ", "
-		<< min_flow->egress_id << ", "
-		<< min_throughput
-		<< std::endl
-		<< "Median latency: "
+      std::cout << std::endl << "Min throughput: ";
+      if (min_flow) {
+	std::cout << min_flow->ingress_id << ", "
+		  << min_flow->egress_id << ", " << min_throughput;
+      } else {
+	std::cout << "N/A (no flits sent during measurement)";
+      }
+      std::cout << std::endl << "Median latency: "
 		<< median_latency
 		<< std::endl
 		<< "Max latency: "
@@ -185,7 +191,10 @@ extern "C" void egress_tick(long long int egress_id,
       }
 
       bool error = false;
-      if (min_throughput < params->required_throughput) {
+      if (!min_flow && params->required_throughput > 0.0f) {
+	std::cout << "Cannot verify required throughput without measurement samples" << std::endl;
+	error = true;
+      } else if (min_flow && min_throughput < params->required_throughput) {
 	std::cout << min_throughput << " < " << params->required_throughput << std::endl;
 	error = true;
       }

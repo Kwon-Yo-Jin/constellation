@@ -1,6 +1,7 @@
 package constellation.channel
 
 import chisel3._
+import chisel3.naming.HasCustomIdentifier
 import chisel3.util._
 
 import org.chipsalliance.cde.config.{Field, Parameters}
@@ -74,7 +75,11 @@ case class VirtualChannelParams(
 }
 
 
-trait BaseChannelParams {
+trait BaseChannelParams extends HasCustomIdentifier {
+  // A module name must not expand the potentially enormous possibleFlows set.
+  override lazy val customDefinitionIdentifierProposal: String =
+    s"${getClass.getSimpleName}_${srcId}_${destId}_${payloadBits}_${nVirtualChannels}"
+
   def srcId: Int
   def destId: Int
   def possibleFlows: Set[FlowRoutingInfo]

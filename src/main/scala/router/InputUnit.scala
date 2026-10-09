@@ -186,8 +186,13 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
   }
   val io = IO(new InputUnitIO)
 
+  private val contextMatches = inputContexts.map { case (context, portId, _) =>
+    (context.nodeId, portId) ->
+      (io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U)
+  }.toMap
+
   private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
-    io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
+    contextMatches((context.nodeId, portId))
 
   val g_i :: g_r :: g_v :: g_a :: g_c :: Nil = Enum(5)
 
@@ -392,13 +397,16 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
     io.out(i).bits.out_virt_channel := salloc_out.out_vid
   }
 
+  // Many VC pairs have the same legal runtime contexts. Share their predicate
+  // rather than constructing identical comparison/OR trees for every pair.
+  private val vcAllowCache = scala.collection.mutable.Map.empty[Seq[(Int, Int)], Bool]
+
   def filterVCSel(sel: MixedVec[Vec[Bool]], srcV: Int) = {
     if (virtualChannelParams(srcV).traversable) {
       outParams.zipWithIndex.foreach { case (oP, oI) =>
         (0 until oP.nVirtualChannels).foreach { oV =>
           val allowingContexts = inputContexts.filter { case (context, _, param) =>
-            RouterRoutingContext.orderedFlows(
-              param.virtualChannelParams(srcV).possibleFlows).exists { flow =>
+            param.virtualChannelParams(srcV).possibleFlows.exists { flow =>
               context.outParams(oI).virtualChannelParams(oV).possibleFlows.contains(flow) &&
               routingRelation(
                 param.channelRoutingInfos(srcV),
@@ -406,9 +414,11 @@ class InputUnit(cParam: ChannelParams, outParams: Seq[ChannelParams],
                 flow)
             }
           }
-          val allow = allowingContexts.map { case (context, portId, _) =>
-            contextMatch(context, portId)
-          }.orR
+          val contextIds = allowingContexts.map { case (context, portId, _) =>
+            (context.nodeId, portId)
+          }
+          val allow = vcAllowCache.getOrElseUpdate(contextIds,
+            contextIds.map(contextMatches).orR)
           when (!allow) {
             sel(oI)(oV) := false.B
           }

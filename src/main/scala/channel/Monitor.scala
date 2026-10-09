@@ -8,6 +8,7 @@ import freechips.rocketchip.util._
 
 import constellation.noc.{HasNoCParams}
 import constellation.router.{ChannelHardwareShape, RouterRoutingContext}
+import constellation.routing.FlowRoutingInfo
 
 class NoCMonitor(
   val cParam: ChannelParams,
@@ -32,12 +33,29 @@ class NoCMonitor(
   dontTouch(io.node_id)
   dontTouch(io.port_id)
 
-  private def contextMatch(context: RouterRoutingContext, portId: Int): Bool =
+  private val contextMatches = monitorContexts.map { case (context, portId, _) =>
     io.node_id === runtimeNodeId(context.nodeId).U && io.port_id === portId.U
+  }
 
   val in_flight = RegInit(VecInit(Seq.fill(cParam.nVirtualChannels) { false.B }))
   for (i <- 0 until cParam.srcSpeedup) {
     val flit = io.in.flit(i)
+    // Build shared predicates outside the assertion's conditional scope. A flow
+    // and its legal-flow set recur across many routing contexts and VCs.
+    val flowMatches = scala.collection.mutable.Map.empty[FlowRoutingInfo, Bool]
+    val flowSetMatches = scala.collection.mutable.Map.empty[Set[FlowRoutingInfo], Bool]
+    val allowedMatches = scala.collection.mutable.Map.empty[Seq[Set[FlowRoutingInfo]], Bool]
+    val allowedByVC = (0 until cParam.nVirtualChannels).map { vc =>
+      val flowSets = monitorContexts.map(_._3.virtualChannelParams(vc).possibleFlows)
+      allowedMatches.getOrElseUpdate(flowSets,
+        contextMatches.zip(flowSets).map { case (active, flows) =>
+          val flowSelected = flowSetMatches.getOrElseUpdate(flows,
+            RouterRoutingContext.orderedFlows(flows).map { flow =>
+              flowMatches.getOrElseUpdate(flow, flow.isFlow(flit.bits.flow))
+            }.orR)
+          active && flowSelected
+        }.orR)
+    }
     when (flit.valid) {
       when (flit.bits.head) {
         in_flight(flit.bits.virt_channel_id) := true.B
@@ -49,15 +67,7 @@ class NoCMonitor(
     }
     when (flit.valid && flit.bits.head) {
       for (vc <- 0 until cParam.nVirtualChannels) {
-        val allowed = monitorContexts.map { case (context, portId, channel) =>
-          val flowSelected = channel.virtualChannelParams(vc).possibleFlows.toSeq
-            .sortBy(f => (
-              f.ingressId, f.egressId, f.vNetId, f.ingressNode,
-              f.ingressNodeId, f.egressNode, f.egressNodeId, f.fifo))
-            .map(_.isFlow(flit.bits.flow)).orR
-          contextMatch(context, portId) && flowSelected
-        }.orR
-        assert(flit.bits.virt_channel_id =/= vc.U || allowed)
+        assert(flit.bits.virt_channel_id =/= vc.U || allowedByVC(vc))
       }
     }
   }

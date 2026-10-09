@@ -172,6 +172,52 @@ object RucheMesh2D {
     new RucheMesh2D(nX, nY, rucheFactor, rucheFactor)
 }
 
+/** A 2D mesh augmented with independently configured levels of Ruche channels.
+  *
+  * Factors are supplied as x/y pairs, one pair per level. For example,
+  * MultiRucheMesh2D(6, 6, 2, 2, 2, 4, 4) adds factors (2, 2) and (4, 4).
+  * Zero levels gives an ordinary mesh. Within each level, zero disables an
+  * axis and one adds a channel parallel to its local mesh links. Repeated
+  * factors add parallel Ruche channels; the local mesh is included only once.
+  */
+case class MultiRucheMesh2D(
+  nX: Int,
+  nY: Int,
+  nLevels: Int,
+  rucheFactors: Int*
+) extends Mesh2DLikePhysicalTopology {
+  private def validFactor(factor: Int, dimension: Int): Boolean =
+    factor == 0 || (factor >= 1 && factor < dimension)
+
+  require(nX > 0 && nY > 0)
+  require(nLevels >= 0, s"Ruche level count $nLevels must be nonnegative")
+  require(rucheFactors.size.toLong == 2L * nLevels,
+    s"$nLevels Ruche levels require ${2L * nLevels} factors (x/y pairs), got ${rucheFactors.size}")
+
+  val xRucheFactors: Seq[Int] = rucheFactors.grouped(2).map(_(0)).toSeq
+  val yRucheFactors: Seq[Int] = rucheFactors.grouped(2).map(_(1)).toSeq
+
+  for (((xFactor, yFactor), level) <- xRucheFactors.zip(yRucheFactors).zipWithIndex) {
+    require(validFactor(xFactor, nX),
+      s"level ${level + 1} x Ruche factor $xFactor must be zero or in [1, $nX)")
+    require(validFactor(yFactor, nY),
+      s"level ${level + 1} y Ruche factor $yFactor must be zero or in [1, $nY)")
+  }
+
+  override def channelMultiplicity(src: Int, dst: Int): Int = {
+    val (srcX, srcY) = (src % nX, src / nX)
+    val (dstX, dstY) = (dst % nX, dst / nX)
+    val dx = (srcX - dstX).abs
+    val dy = (srcY - dstY).abs
+    val local = if ((srcX == dstX && dy == 1) || (srcY == dstY && dx == 1)) 1 else 0
+    val rucheX = if (srcY == dstY) xRucheFactors.count(f => f != 0 && dx == f) else 0
+    val rucheY = if (srcX == dstX) yRucheFactors.count(f => f != 0 && dy == f) else 0
+    local + rucheX + rucheY
+  }
+
+  def topo(src: Int, dst: Int): Boolean = channelMultiplicity(src, dst) > 0
+}
+
 /** A 2D unidirectional torus network with nX * nY nodes.
  *
  *  @param nX maximum x-coordinate of a node
@@ -198,6 +244,92 @@ case class BidirectionalTorus2D(nX: Int, nY: Int) extends Mesh2DLikePhysicalTopo
     ((srcY == dstY && new BidirectionalTorus1D(nX).topo(srcX, dstX)) ||
       (srcX == dstX && new BidirectionalTorus1D(nY).topo(srcY, dstY)))
   }
+}
+
+/** A unidirectional 2D torus with additional positive-X and positive-Y Ruche
+  * channels. Both local and Ruche channels wrap around their dimension.
+  * Zero disables Ruche channels; one adds a parallel channel to each local link.
+  */
+case class UnidirectionalRucheTorus2D(
+  nX: Int,
+  nY: Int,
+  xRucheFactor: Int,
+  yRucheFactor: Int
+) extends Mesh2DLikePhysicalTopology {
+  private def validFactor(factor: Int, dimension: Int): Boolean =
+    factor == 0 || (factor >= 1 && factor < dimension)
+
+  require(nX > 0 && nY > 0)
+  require(validFactor(xRucheFactor, nX),
+    s"x Ruche factor $xRucheFactor must be zero or in [1, $nX)")
+  require(validFactor(yRucheFactor, nY),
+    s"y Ruche factor $yRucheFactor must be zero or in [1, $nY)")
+
+  private val base = UnidirectionalTorus2D(nX, nY)
+
+  override def channelMultiplicity(src: Int, dst: Int): Int = {
+    val (srcX, srcY) = (src % nX, src / nX)
+    val (dstX, dstY) = (dst % nX, dst / nX)
+    val dx = (dstX - srcX + nX) % nX
+    val dy = (dstY - srcY + nY) % nY
+    val local = if (base.topo(src, dst)) 1 else 0
+    val rucheX = if (xRucheFactor != 0 && srcY == dstY && dx == xRucheFactor) 1 else 0
+    val rucheY = if (yRucheFactor != 0 && srcX == dstX && dy == yRucheFactor) 1 else 0
+    local + rucheX + rucheY
+  }
+
+  def topo(src: Int, dst: Int): Boolean = channelMultiplicity(src, dst) > 0
+}
+
+object UnidirectionalRucheTorus2D {
+  /** Construct a Ruche torus with the same factor in both dimensions. */
+  def apply(nX: Int, nY: Int, rucheFactor: Int): UnidirectionalRucheTorus2D =
+    new UnidirectionalRucheTorus2D(nX, nY, rucheFactor, rucheFactor)
+}
+
+/** A bidirectional 2D torus with additional Ruche channels in both directions
+  * of each dimension. Both local and Ruche channels wrap around.
+  * Zero disables Ruche channels; one adds a parallel channel to each local link.
+  * Coincident positive/negative skips count once, as with local torus neighbors;
+  * a Ruche channel coinciding with a local channel is still a separate channel.
+  */
+case class BidirectionalRucheTorus2D(
+  nX: Int,
+  nY: Int,
+  xRucheFactor: Int,
+  yRucheFactor: Int
+) extends Mesh2DLikePhysicalTopology {
+  private def validFactor(factor: Int, dimension: Int): Boolean =
+    factor == 0 || (factor >= 1 && factor < dimension)
+
+  require(nX > 0 && nY > 0)
+  require(validFactor(xRucheFactor, nX),
+    s"x Ruche factor $xRucheFactor must be zero or in [1, $nX)")
+  require(validFactor(yRucheFactor, nY),
+    s"y Ruche factor $yRucheFactor must be zero or in [1, $nY)")
+
+  private val base = BidirectionalTorus2D(nX, nY)
+
+  override def channelMultiplicity(src: Int, dst: Int): Int = {
+    val (srcX, srcY) = (src % nX, src / nX)
+    val (dstX, dstY) = (dst % nX, dst / nX)
+    val dx = (dstX - srcX + nX) % nX
+    val dy = (dstY - srcY + nY) % nY
+    val local = if (base.topo(src, dst)) 1 else 0
+    val rucheX = if (xRucheFactor != 0 && srcY == dstY &&
+      (dx == xRucheFactor || dx == nX - xRucheFactor)) 1 else 0
+    val rucheY = if (yRucheFactor != 0 && srcX == dstX &&
+      (dy == yRucheFactor || dy == nY - yRucheFactor)) 1 else 0
+    local + rucheX + rucheY
+  }
+
+  def topo(src: Int, dst: Int): Boolean = channelMultiplicity(src, dst) > 0
+}
+
+object BidirectionalRucheTorus2D {
+  /** Construct a Ruche torus with the same factor in both dimensions. */
+  def apply(nX: Int, nY: Int, rucheFactor: Int): BidirectionalRucheTorus2D =
+    new BidirectionalRucheTorus2D(nX, nY, rucheFactor, rucheFactor)
 }
 
 case class TerminalRouter(val base: PhysicalTopology) extends PhysicalTopology {

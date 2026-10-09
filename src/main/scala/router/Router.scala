@@ -1,6 +1,7 @@
 package constellation.router
 
 import chisel3._
+import chisel3.naming.HasCustomIdentifier
 import chisel3.util._
 
 import org.chipsalliance.cde.config.{Field, Parameters}
@@ -97,7 +98,11 @@ case class RouterRoutingContext(
   ingressParams: Seq[IngressChannelParams],
   egressParams: Seq[EgressChannelParams],
   user: UserRouterParams = UserRouterParams()
-) extends HasRouterInputParams with HasRouterOutputParams {
+) extends HasRouterInputParams with HasRouterOutputParams with HasCustomIdentifier {
+  // Runtime-context flow tables are data, not part of the module name.
+  override val customDefinitionIdentifierProposal: String =
+    s"RouterRoutingContext_${nodeId}_${inParams.size}_${outParams.size}_${ingressParams.size}_${egressParams.size}"
+
   def hasSamePolicyShape(that: RouterRoutingContext): Boolean = {
     inParams.map(_.nVirtualChannels) == that.inParams.map(_.nVirtualChannels) &&
     outParams.map(_.nVirtualChannels) == that.outParams.map(_.nVirtualChannels) &&
